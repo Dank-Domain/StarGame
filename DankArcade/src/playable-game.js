@@ -13,12 +13,6 @@
   const EDGE_PAN_SIZE = 28;
   const EDGE_PAN_SPEED = 520;
   const KEY_PAN_SPEED = 620;
-  const CAMERA_ACCELERATION = 8.5;
-  const CAMERA_DAMPING = 7.5;
-  const CAMERA_JUMP_SMOOTHING = 0.18;
-  const CAMERA_ZOOM_SMOOTHING = 0.2;
-  const DRAG_GLIDE_DAMPING = 10;
-  const DRAG_GLIDE_MAX_SPEED = 680;
   const NEUTRAL = "neutral";
   const CAPITAL_CAPTURE_REWARD = 18;
   const CAPITAL_CAPTURE_WORLD_REWARD = 5;
@@ -32,9 +26,6 @@
   const INVADER_WARNING_ONE = 480;
   const INVADER_WARNING_TWO = 570;
   const INVADER_REWARD_SURGE_SECONDS = 60;
-  const EVENT_HISTORY_LIMIT = 56;
-  const HUD_RENDER_INTERVAL = 0.18;
-  const LABEL_CULL_PADDING = 120;
   const INVADER_WORLD = {
     id: "rift-crown",
     name: "The Rift Crown",
@@ -323,20 +314,9 @@
     const cx = MAP_WIDTH / 2;
     const cy = MAP_HEIGHT / 2;
     worlds = worlds.map((world) => transformGalaxyWorld(world, cx, cy, size, layout));
-    worlds = normalizeGalaxyWorlds(worlds, activeSlots, cx, cy);
     const kept = new Set(worlds.map((world) => world.id));
     lanes = uniqLanes(lanes).filter(([a, b]) => kept.has(a) && kept.has(b));
     return { worlds, lanes, sectors };
-  }
-
-  function normalizeGalaxyWorlds(worlds, activeSlots, cx, cy) {
-    const focusWorlds = worlds.filter((world) => world.isCapital && world.ownerSlot !== null && world.ownerSlot < activeSlots)
-      .concat(worlds.filter((world) => world.sectorId === "nexus-sector"));
-    const source = focusWorlds.length ? focusWorlds : worlds;
-    const center = source.reduce((sum, world) => ({ x: sum.x + world.x, y: sum.y + world.y }), { x: 0, y: 0 });
-    const dx = cx - center.x / source.length;
-    const dy = cy - center.y / source.length;
-    return worlds.map((world) => ({ ...world, x: Math.round(world.x + dx), y: Math.round(world.y + dy) }));
   }
 
   function transformGalaxyWorld(world, cx, cy, size, layout) {
@@ -416,12 +396,6 @@
       this.mapRevision = 0;
       this.nextFleetId = 1;
       this.stats = {};
-      this.events = [];
-      this.nextEventId = 1;
-      this.defeatedFactions = new Set();
-      this.worldById = new Map();
-      this.neighborsById = new Map();
-      this.laneKeys = new Set();
       this.settings = { ...DEFAULT_SETTINGS };
     }
 
@@ -462,47 +436,13 @@
       this.mapRevision = 0;
       this.nextFleetId = 1;
       this.stats = {};
-      this.events = [];
-      this.nextEventId = 1;
-      this.defeatedFactions = new Set();
       for (const faction of this.factions) {
         this.factionPressure[faction.id] = 0;
         this.warSurges[faction.id] = 0;
         this.ensureFactionStats(faction.id);
       }
       for (const faction of this.aiFactions()) this.aiClocks[faction.id] = Math.min(faction.aiDelay, AI_INTERVAL - 0.25);
-      this.rebuildCaches();
       this.sectorOwners = this.captureSectorOwners();
-      this.addEvent("match", this.settings.spectatorMode ? "Spectator simulation started." : "Alliance command launched the campaign.", { important: false });
-    }
-
-    rebuildCaches() {
-      this.worldById = new Map(this.worlds.map((world) => [world.id, world]));
-      this.neighborsById = new Map(this.worlds.map((world) => [world.id, []]));
-      this.laneKeys = new Set();
-      for (const [a, b] of this.lanes) {
-        if (!this.worldById.has(a) || !this.worldById.has(b)) continue;
-        this.neighborsById.get(a)?.push(b);
-        this.neighborsById.get(b)?.push(a);
-        this.laneKeys.add(this.laneKey(a, b));
-      }
-    }
-
-    addEvent(type, message, details = {}) {
-      const event = {
-        id: this.nextEventId++,
-        age: this.elapsed,
-        time: this.formattedAge(),
-        type,
-        message,
-        owner: details.owner || null,
-        worldId: details.worldId || null,
-        important: details.important !== false
-      };
-      this.events.unshift(event);
-      if (this.events.length > EVENT_HISTORY_LIMIT) this.events.length = EVENT_HISTORY_LIMIT;
-      if (event.important) this.message = message;
-      return event;
     }
 
     setPaused(paused) {
@@ -520,9 +460,7 @@
           troopsKilled: 0,
           fleetsLaunched: 0,
           planetsCaptured: 0,
-          planetsUpgraded: 0,
-          capitalsCaptured: 0,
-          capitalsLost: 0
+          planetsUpgraded: 0
         };
       }
       return this.stats[owner];
@@ -667,7 +605,7 @@
 
     launchShipsFor(world, owner) {
       if (this.isInvader(owner)) {
-        const pressure = this.invaderPressure();
+        const pressure = Phaser.Math.Clamp(this.invaderScale / 900, 0, 1);
         const ratio = 0.55 + pressure * 0.1;
         return Math.floor(world.ships * ratio);
       }
@@ -713,12 +651,10 @@
       if (!this.invaderWarningOneShown && this.elapsed >= INVADER_WARNING_ONE && !this.invaderSpawned) {
         this.invaderWarningOneShown = true;
         this.setPriorityMessage("Long-range sensors detect a rift forming beyond the galactic rim.", 5);
-        this.addEvent("crisis", "Long-range sensors detect a rift forming beyond the galactic rim.", { owner: INVADER });
       }
       if (!this.invaderWarningTwoShown && this.elapsed >= INVADER_WARNING_TWO && !this.invaderSpawned) {
         this.invaderWarningTwoShown = true;
         this.setPriorityMessage("The rift is destabilizing. End-game threat arrival is imminent.", 6);
-        this.addEvent("crisis", "The rift is destabilizing. End-game threat arrival is imminent.", { owner: INVADER });
       }
       if (!this.invaderSpawned && !this.invaderDefeated && this.elapsed >= INVADER_SPAWN_SECONDS) {
         this.spawnInvader();
@@ -728,18 +664,10 @@
     spawnInvader() {
       if (this.invaderSpawned || this.invaderDefeated) return;
       const snapshot = this.universeStrengthSnapshot();
-      const sizeFactor = this.settings.galaxySize === "large" ? 1.18 : this.settings.galaxySize === "small" ? 0.9 : 1;
-      const factionFactor = 1 + Math.max(0, snapshot.activeFactions - 2) * 0.08;
-      const floor = Math.round((260 + snapshot.activeFactions * 42) * sizeFactor);
-      const cap = Math.round((760 + this.settings.aiCount * 145 + snapshot.activeFactions * 35) * sizeFactor);
-      const scaled = Math.max(
-        snapshot.highestFactionPower * 1.18,
-        snapshot.averageFactionPower * (1.35 + snapshot.activeFactions * 0.05),
-        snapshot.totalFactionPower * 0.34
-      )
-        + snapshot.upgradedWorlds * 18
-        + snapshot.totalProduction * 12;
-      const startingShips = Phaser.Math.Clamp(Math.round(scaled * factionFactor), floor, cap);
+      const scaled = Math.max(360, snapshot.highestFactionShips * 0.85, snapshot.totalFactionShips * 0.28)
+        + snapshot.upgradedWorlds * 20
+        + Math.max(0, snapshot.activeFactions - 2) * 35;
+      const startingShips = Phaser.Math.Clamp(Math.round(scaled), 360, 900);
       this.invaderScale = startingShips;
       this.invaderSpawned = true;
       if (!this.factions.some((faction) => faction.id === INVADER)) {
@@ -752,41 +680,24 @@
       this.aiClocks[INVADER] = 0;
       this.worlds.push({ ...INVADER_WORLD, owner: INVADER, ships: startingShips, level: 4 });
       this.lanes = uniqLanes(this.lanes.concat(INVADER_LANES));
-      this.rebuildCaches();
       this.mapRevision++;
-      const message = `The Void Ascendancy tears into the galaxy with ${startingShips} Tier IV ships.`;
-      this.setPriorityMessage(message, 7);
-      this.addEvent("crisis", message, { owner: INVADER, worldId: INVADER_WORLD.id });
+      this.setPriorityMessage(`The Void Ascendancy tears into the galaxy with ${startingShips} Tier IV ships.`, 7);
     }
 
     universeStrengthSnapshot() {
       const totals = {};
-      const production = {};
       let totalFactionShips = 0;
-      let totalProduction = 0;
       let upgradedWorlds = 0;
       for (const world of this.worlds) {
         if (world.owner === NEUTRAL || this.isInvader(world.owner)) continue;
         totals[world.owner] = (totals[world.owner] || 0) + world.ships;
-        production[world.owner] = (production[world.owner] || 0) + this.generationFor(world);
         totalFactionShips += world.ships;
-        totalProduction += this.generationFor(world);
         if (this.worldTier(world) > 1) upgradedWorlds++;
       }
-      for (const fleet of this.fleets) {
-        if (this.isInvader(fleet.owner)) continue;
-        totals[fleet.owner] = (totals[fleet.owner] || 0) + fleet.ships;
-        totalFactionShips += fleet.ships;
-      }
       const values = Object.values(totals);
-      const powers = Object.keys(totals).map((owner) => totals[owner] + (production[owner] || 0) * 18);
       return {
         totalFactionShips,
         highestFactionShips: values.length ? Math.max(...values) : 0,
-        totalFactionPower: powers.reduce((sum, value) => sum + value, 0),
-        highestFactionPower: powers.length ? Math.max(...powers) : 0,
-        averageFactionPower: powers.length ? powers.reduce((sum, value) => sum + value, 0) / powers.length : 0,
-        totalProduction,
         upgradedWorlds,
         activeFactions: values.length
       };
@@ -809,12 +720,8 @@
     generationFor(world) {
       const sectorBonus = this.getSectorOwnerById(world.sectorId) === world.owner ? SECTOR_BONUS : 0;
       const surgeBonus = world.owner !== NEUTRAL && (this.warSurges[world.owner] || 0) > 0 ? WAR_SURGE_PRODUCTION_BONUS : 0;
-      const invaderBonus = this.isInvader(world.owner) ? Math.min(6, Math.floor(Math.max(0, this.elapsed - INVADER_SPAWN_SECONDS) / 110) + Math.floor(this.invaderPressure() * 2)) : 0;
+      const invaderBonus = this.isInvader(world.owner) ? Math.min(3, Math.floor(Math.max(0, this.elapsed - INVADER_SPAWN_SECONDS) / 120)) : 0;
       return world.generationRate + sectorBonus + surgeBonus + this.levelProductionBonus(world) + invaderBonus;
-    }
-
-    invaderPressure() {
-      return Phaser.Math.Clamp(this.invaderScale / 1200, 0, 1.35);
     }
 
     levelProductionBonus(world) {
@@ -843,7 +750,7 @@
       world.ships -= upgrade.cost;
       world.level = upgrade.level;
       this.ensureFactionStats(owner).planetsUpgraded++;
-      this.addEvent("upgrade", `${world.name} upgraded to Level ${world.level}. It now launches Tier ${TIER_ROMAN[world.level]} fleets.`, { owner, worldId: world.id, important: world.level >= 3 || this.isHuman(owner) });
+      this.message = `${world.name} upgraded to Level ${world.level}. It now launches Tier ${TIER_ROMAN[world.level]} fleets.`;
       return true;
     }
 
@@ -901,13 +808,11 @@
             this.addCombatLoss(second.owner, second.ships, first.owner);
             additions.push({ ...first, id: `fleet-${this.nextFleetId++}`, ships: outcome.ships, progress: contact, holdTime: 1.15 });
             this.message = `${nameFor(first.owner, this.factions)} Tier ${TIER_ROMAN[first.tier || 1]} fleet intercepted ${nameFor(second.owner, this.factions)}${outcome.decisive ? " with a decisive strike" : ""}.`;
-            if (outcome.decisive) this.addEvent("battle", this.message, { owner: first.owner, important: false });
           } else if (outcome.winner === second) {
             this.addCombatLoss(second.owner, second.ships - outcome.ships, first.owner);
             this.addCombatLoss(first.owner, first.ships, second.owner);
             additions.push({ ...second, id: `fleet-${this.nextFleetId++}`, ships: outcome.ships, progress: 1 - contact, holdTime: 1.15 });
             this.message = `${nameFor(second.owner, this.factions)} Tier ${TIER_ROMAN[second.tier || 1]} fleet intercepted ${nameFor(first.owner, this.factions)}${outcome.decisive ? " with a decisive strike" : ""}.`;
-            if (outcome.decisive) this.addEvent("battle", this.message, { owner: second.owner, important: false });
           } else {
             this.addCombatLoss(first.owner, first.ships, second.owner);
             this.addCombatLoss(second.owner, second.ships, first.owner);
@@ -961,7 +866,7 @@
       const message = attackerWon
         ? `${tierText} fleet overran ${target.name}${defenseText}.${decisiveText}`
         : `${target.name}${defenseText} held against a ${tierText} assault.${decisiveText}`;
-      return { attackerWon, remainingShips, message, attackerLosses, defenderLosses, decisive: !!decisive };
+      return { attackerWon, remainingShips, message, attackerLosses, defenderLosses };
     }
 
     fleetPower(fleet) {
@@ -1019,14 +924,11 @@
         this.markFactionProgress(fleet.owner, target);
         this.rewardCapitalCapture(target, previousOwner);
         this.message = battle.message;
-        if (battle.decisive) this.addEvent("battle", battle.message, { owner: fleet.owner, worldId: target.id, important: false });
         if (target.isInvaderOrigin && previousOwner === INVADER && !this.isInvader(fleet.owner)) {
           this.defeatInvader(fleet.owner, target);
         }
         this.handleCapture(target, previousOwner);
         this.checkSectorChanges();
-        this.checkFactionEliminations();
-        this.checkVictoryConditions();
         return;
       }
 
@@ -1038,11 +940,8 @@
         this.message = battle.message;
         this.handleCapture(target, previousOwner);
         this.checkSectorChanges();
-        this.checkFactionEliminations();
-        this.checkVictoryConditions();
       } else {
         this.message = battle.message;
-        if (battle.decisive) this.addEvent("battle", battle.message, { owner: target.owner, worldId: target.id, important: false });
       }
     }
 
@@ -1072,8 +971,6 @@
       this.warSurges[world.owner] = WAR_SURGE_SECONDS;
       this.factionPressure[world.owner] = 0;
       this.lastCapitalCaptureAt = this.elapsed;
-      this.ensureFactionStats(world.owner).capitalsCaptured++;
-      this.ensureFactionStats(previousOwner).capitalsLost++;
       delete this.aiPlans[world.owner];
       delete this.aiPlans[previousOwner];
     }
@@ -1102,9 +999,7 @@
       this.warSurges[capturingOwner] = Math.max(this.warSurges[capturingOwner] || 0, INVADER_REWARD_SURGE_SECONDS);
       delete this.aiPlans[INVADER];
       for (const faction of this.factions) delete this.aiPlans[faction.id];
-      const message = `${nameFor(capturingOwner, this.factions)} shattered The Rift Crown. Void spoils trigger a massive war surge.`;
-      this.setPriorityMessage(message, 8);
-      this.addEvent("crisis", message, { owner: capturingOwner, worldId: originWorld.id });
+      this.setPriorityMessage(`${nameFor(capturingOwner, this.factions)} shattered The Rift Crown. Void spoils trigger a massive war surge.`, 8);
     }
 
     handleCapture(world, previousOwner) {
@@ -1114,69 +1009,37 @@
         return;
       }
 
-      const ownerName = nameFor(world.owner, this.factions);
-      const previousName = nameFor(previousOwner, this.factions);
-      const originalOwner = this.originalOwnerFor(world);
-      const reclaimed = originalOwner && world.owner === originalOwner && previousOwner !== originalOwner;
-      if (world.owner === NEUTRAL) {
-        this.addEvent("capital", `${world.name} was blasted into neutrality. ${previousName} has lost its command world.`, { owner: previousOwner, worldId: world.id });
+      if (this.settings.spectatorMode) {
+        this.message = `${world.name} has fallen to ${nameFor(world.owner, this.factions)}. War surge active: reserves and production spike across their worlds.`;
+        this.checkSpectatorWinner();
         return;
       }
-      const message = previousOwner === NEUTRAL
-        ? `${ownerName} claimed ${world.name}. A command world is back in play.`
-        : reclaimed
-        ? `${ownerName} reclaimed ${world.name}. War surge active: reserves and production spike across their worlds.`
-        : `${world.name} has fallen to ${ownerName}. ${previousName} remains active while any worlds or fleets survive.`;
-      this.addEvent(reclaimed ? "capital-reclaimed" : "capital", message, { owner: world.owner, worldId: world.id });
-    }
 
-    originalOwnerFor(world) {
-      if (world?.ownerSlot === null || world?.ownerSlot === undefined) return null;
-      return this.factions[world.ownerSlot]?.id || null;
-    }
-
-    checkFactionEliminations() {
-      for (const faction of this.factions) {
-        if (this.defeatedFactions.has(faction.id)) continue;
-        if (this.isFactionActive(faction.id)) continue;
-        this.defeatedFactions.add(faction.id);
-        delete this.aiPlans[faction.id];
-        this.addEvent("elimination", `${faction.shortName} has been eliminated from the galaxy.`, { owner: faction.id });
-      }
-    }
-
-    isFactionActive(owner) {
-      return this.worlds.some((world) => world.owner === owner) || this.fleets.some((fleet) => fleet.owner === owner);
-    }
-
-    activeNormalFactions() {
-      return this.factions.filter((faction) => !this.isInvader(faction.id) && this.isFactionActive(faction.id));
-    }
-
-    checkVictoryConditions() {
-      if (this.status !== "playing") return;
       const human = this.humanFaction();
-      const voidActive = this.factions.some((faction) => faction.id === INVADER) && this.isFactionActive(INVADER) && !this.invaderDefeated;
-      if (human && !this.isFactionActive(human.id)) {
-        this.status = "humanLost";
-        this.addEvent("defeat", "Defeat. The Alliance has no worlds or fleets left.", { owner: human.id });
-        return;
-      }
-      if (human) {
-        const rivalsAlive = this.factions.some((faction) => faction.id !== human.id && !this.isInvader(faction.id) && this.isFactionActive(faction.id));
-        if (!rivalsAlive && !voidActive) {
+      if (human && previousOwner !== human.id && world.owner === human.id) {
+        const rivalCapitals = this.worlds.filter((candidate) => candidate.isCapital && candidate.owner !== human.id && candidate.owner !== NEUTRAL);
+        if (rivalCapitals.length === 0) {
           this.status = "humanWon";
-          this.addEvent("victory", "Victory. Every rival faction has been wiped from the galaxy.", { owner: human.id });
+          this.message = "Victory. Every rival command world answers to the Alliance.";
+          return;
         }
+
+        this.message = `${world.name} captured. War surge active: Alliance reserves and production spike. ${rivalCapitals.length} rival command world${rivalCapitals.length === 1 ? "" : "s"} remain.`;
         return;
       }
-      const active = this.activeNormalFactions();
-      if (active.length === 1 && !voidActive) {
+
+      if (human && previousOwner === human.id && world.owner !== human.id) {
+        this.status = "humanLost";
+        this.message = "Defeat. Liberty Prime has fallen.";
+      }
+    }
+
+    checkSpectatorWinner() {
+      const capitalOwners = new Set(this.worlds.filter((world) => world.isCapital && world.owner !== NEUTRAL).map((world) => world.owner));
+      if (capitalOwners.size === 1) {
+        const [winner] = [...capitalOwners];
         this.status = "spectatorEnded";
-        this.addEvent("victory", `${active[0].shortName} controls the last surviving faction network.`, { owner: active[0].id });
-      } else if (active.length === 0 && voidActive) {
-        this.status = "spectatorEnded";
-        this.addEvent("victory", "The Void Ascendancy consumed every surviving faction.", { owner: INVADER });
+        this.message = `${nameFor(winner, this.factions)} controls the last command world.`;
       }
     }
 
@@ -1187,9 +1050,9 @@
         const after = nextOwners[sector.id] || NEUTRAL;
         if (before === after) continue;
         if (after !== NEUTRAL) {
-          this.addEvent("sector", `${nameFor(after, this.factions)} controls ${sector.name}. Sector production boosted.`, { owner: after, important: false });
+          this.message = `${nameFor(after, this.factions)} controls ${sector.name}. Sector production boosted.`;
         } else if (before !== NEUTRAL) {
-          this.addEvent("sector", `${sector.name} is contested. Sector production bonus lost.`, { owner: before, important: false });
+          this.message = `${sector.name} is contested. Sector production bonus lost.`;
         }
       }
       this.sectorOwners = nextOwners;
@@ -1233,7 +1096,6 @@
     updateAi(deltaSeconds) {
       for (const faction of this.aiFactions()) {
         if (this.isInvader(faction.id)) continue;
-        if (!this.isFactionActive(faction.id) || this.defeatedFactions.has(faction.id)) continue;
         this.aiClocks[faction.id] = (this.aiClocks[faction.id] || 0) + deltaSeconds;
         if (this.aiClocks[faction.id] < AI_INTERVAL) continue;
         this.aiClocks[faction.id] = 0;
@@ -1518,18 +1380,6 @@
       const personality = this.personalityFor(owner);
       const capitalOptions = [];
       const options = [];
-      const lostHome = this.worlds.find((world) => world.isCapital && this.originalOwnerFor(world) === owner && world.owner !== owner);
-      if (lostHome) {
-        const distance = this.nearestOwnedDistance(owner, lostHome.id);
-        if (Number.isFinite(distance)) {
-          capitalOptions.push({
-            type: "capital",
-            targetId: lostHome.id,
-            targetCapitalId: lostHome.id,
-            score: 280 * personality.capitalFocus - distance * 10 - lostHome.ships * 0.55
-          });
-        }
-      }
       if (!this.isInvader(owner)) {
         for (const world of this.worlds) {
           if (!this.isInvader(world.owner)) continue;
@@ -1766,19 +1616,19 @@
     }
 
     areConnected(a, b) {
-      return this.laneKeys.has(this.laneKey(a, b));
+      return this.lanes.some(([from, to]) => (from === a && to === b) || (from === b && to === a));
     }
 
     getNeighbors(worldId) {
-      return this.neighborsById.get(worldId) || [];
+      return this.lanes.flatMap(([a, b]) => {
+        if (a === worldId) return [b];
+        if (b === worldId) return [a];
+        return [];
+      });
     }
 
     getWorld(worldId) {
-      return this.worldById.get(worldId) || null;
-    }
-
-    laneKey(a, b) {
-      return [a, b].sort().join("|");
+      return this.worlds.find((world) => world.id === worldId);
     }
   }
 
@@ -1788,13 +1638,6 @@
       this.scene = scene;
       this.overlays = { planetLabels: true, fleetLabels: true, sectors: true, lanes: true, minimap: true };
       this.lastMessage = "";
-      this.lastChronicleSignature = "";
-      this.lastStandingsSignature = "";
-      this.lastDossierSignature = "";
-      this.lastHoldingsSignature = "";
-      this.lastMinimapStaticSignature = "";
-      this.minimapStaticCanvas = null;
-      this.lastPanelRenderAt = 0;
       this.toasts = [];
       const root = document.getElementById("hud-root");
       root.innerHTML = "";
@@ -2059,7 +1902,6 @@
       this.el = {};
       this.hud.querySelectorAll('[data-el]').forEach(n => this.el[n.dataset.el] = n);
       this.minimap = this.hud.querySelector('.minimap');
-      this.buildChroniclePanel();
       this.initDraggable();
 
       // Wire actions
@@ -2098,38 +1940,6 @@
         const rect = this.minimap.getBoundingClientRect();
         this.scene.jumpToMinimap((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
       });
-    }
-
-    buildChroniclePanel() {
-      const controls = this.hud.querySelector('.command-rail .rail-section:last-child');
-      const restart = this.hud.querySelector('[data-action="restart"]');
-      const divider = document.createElement('div');
-      divider.className = 'rail-divider';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'rail-button chronicle-toggle';
-      button.textContent = 'Chronicle';
-      button.addEventListener('click', () => {
-        this.el.chroniclePanel.classList.toggle('visible');
-        this.renderChronicle(true);
-      });
-      controls.insertBefore(button, restart);
-      controls.insertBefore(divider, restart);
-
-      const panel = document.createElement('div');
-      panel.className = 'chronicle-panel';
-      panel.dataset.el = 'chroniclePanel';
-      panel.innerHTML = `
-        <div class="chronicle-header">
-          <span>Recent Events</span>
-          <button class="chronicle-close" type="button">×</button>
-        </div>
-        <div class="chronicle-list" data-el="chronicleList"></div>
-      `;
-      panel.querySelector('.chronicle-close').addEventListener('click', () => panel.classList.remove('visible'));
-      this.hud.append(panel);
-      this.el.chroniclePanel = panel;
-      this.el.chronicleList = panel.querySelector('[data-el="chronicleList"]');
     }
 
     buildEndgame() {
@@ -2207,7 +2017,7 @@
       const selected = sim.worlds.find((w) => w.id === sim.selectedWorldId);
       let statusText;
       if (sim.status === "humanWon") statusText = "Victory secured. Every rival command world has fallen.";
-      else if (sim.status === "humanLost") statusText = "Defeat. The Alliance has no worlds or fleets left.";
+      else if (sim.status === "humanLost") statusText = "Defeat. Your command world has been taken.";
       else if (sim.status === "spectatorEnded") statusText = sim.message;
       else if (selected) statusText = sim.message;
       else statusText = sim.message;
@@ -2223,8 +2033,8 @@
       }
 
       // End-game card
-      const endStatuses = { humanWon: ['VICTORY', 'won', 'Every rival faction has been wiped from the galaxy.'],
-                            humanLost: ['DEFEAT', 'lost', 'The Alliance has no worlds or fleets left.'],
+      const endStatuses = { humanWon: ['VICTORY', 'won', 'Every rival command world answers to your banner.'],
+                            humanLost: ['DEFEAT', 'lost', 'Liberty Prime has fallen. The galaxy belongs to another.'],
                             spectatorEnded: ['CAMPAIGN END', 'draw', sim.message] };
       if (endStatuses[sim.status]) {
         const [title, cls, msg] = endStatuses[sim.status];
@@ -2236,50 +2046,15 @@
         this.endgame.classList.remove('visible');
       }
 
-      this.renderPanelData();
-      if (this.overlays.minimap) this.renderMinimap();
-    }
-
-    renderPanelData() {
-      const now = performance.now() / 1000;
-      if (now - this.lastPanelRenderAt < HUD_RENDER_INTERVAL) return;
-      this.lastPanelRenderAt = now;
       this.renderStandings();
       this.renderDossier();
       this.renderHoldings();
-      this.renderChronicle(false);
-    }
-
-    renderChronicle(force = false) {
-      const sim = this.shell.simulation;
-      const signature = sim.events.map((event) => `${event.id}:${event.message}`).join("|");
-      if (!force && signature === this.lastChronicleSignature) return;
-      this.lastChronicleSignature = signature;
-      const list = this.el.chronicleList;
-      if (!list) return;
-      list.innerHTML = "";
-      if (!sim.events.length) {
-        const empty = document.createElement("div");
-        empty.className = "chronicle-empty";
-        empty.textContent = "No major events recorded yet.";
-        list.append(empty);
-        return;
-      }
-      for (const event of sim.events.slice(0, 14)) {
-        const item = document.createElement("div");
-        item.className = `chronicle-event ${event.type}`;
-        item.style.setProperty("--event-color", event.owner ? cssFor(event.owner, sim.factions) : "var(--brass-3)");
-        item.innerHTML = `<b>${event.time}</b><span>${event.message}</span>`;
-        list.append(item);
-      }
+      if (this.overlays.minimap) this.renderMinimap();
     }
 
     renderStandings() {
       const sim = this.shell.simulation;
       const rows = sim.factionSnapshots();
-      const signature = rows.map((r) => `${r.faction.id}:${r.totalShips}:${r.planets}:${r.sectors}:${r.capitals}:${r.surge}:${r.faction.isHuman ? 1 : 0}`).join("|");
-      if (signature === this.lastStandingsSignature) return;
-      this.lastStandingsSignature = signature;
       const maxShips = Math.max(1, ...rows.map(r => r.totalShips));
       const body = this.el.standingsBody;
       body.innerHTML = "";
@@ -2321,19 +2096,11 @@
       const sim = this.shell.simulation;
       const details = sim.selectedWorldDetails();
       if (!details) {
-        this.lastDossierSignature = "none";
         this.el.dossier.classList.remove('visible');
         return;
       }
       this.el.dossier.classList.add('visible');
       const { world, ownerName, tier, production, upgrade, neighbors, incomingFriendly, incomingEnemy } = details;
-      const signature = [
-        world.id, world.owner, world.ships, world.level, ownerName, tier, production,
-        upgrade?.level || 0, upgrade?.threshold || 0, incomingFriendly, incomingEnemy,
-        neighbors.map((neighbor) => `${neighbor.id}:${neighbor.owner}:${neighbor.ships}`).join(",")
-      ].join("|");
-      if (signature === this.lastDossierSignature) return;
-      this.lastDossierSignature = signature;
       const ownerColor = cssFor(world.owner, sim.factions);
       const tierNum = sim.worldTier(world);
       const tierPips = [1,2,3,4].map(n => `<i class="${n <= tierNum ? 'on' : ''}"></i>`).join('');
@@ -2424,14 +2191,6 @@
       const totalSectors = sim.sectors.length;
       const totalWorlds = sim.worlds.length;
       const playerWorlds = human ? sim.worlds.filter(w => w.owner === human.id).length : 0;
-      const signature = [
-        human?.id || "spectator", playerWorlds, heldSectors.length, totalSectors, totalWorlds,
-        sim.fleets.length, sim.invaderSpawned ? 1 : 0, sim.invaderDefeated ? 1 : 0,
-        Math.ceil(Math.max(0, 600 - sim.elapsed)),
-        sim.worlds.filter(w => sim.isInvader(w.owner)).length
-      ].join("|");
-      if (signature === this.lastHoldingsSignature) return;
-      this.lastHoldingsSignature = signature;
 
       const items = [];
       if (human) {
@@ -2528,121 +2287,6 @@
         x: ((point.x - bounds.left) / bounds.width) * width,
         y: ((point.y - bounds.top) / bounds.height) * height
       });
-
-      const staticSignature = [
-        width, height, bounds.left, bounds.top, bounds.width, bounds.height,
-        sim.mapRevision,
-        sim.worlds.map((world) => `${world.id}:${world.owner}:${world.ships}:${world.level}:${world.x}:${world.y}`).join("|"),
-        sim.lanes.map((lane) => lane.join(">")).join("|")
-      ].join("::");
-      if (staticSignature !== this.lastMinimapStaticSignature || !this.minimapStaticCanvas) {
-        this.lastMinimapStaticSignature = staticSignature;
-        this.minimapStaticCanvas = this.minimapStaticCanvas || document.createElement("canvas");
-        this.minimapStaticCanvas.width = width;
-        this.minimapStaticCanvas.height = height;
-        const staticCtx = this.minimapStaticCanvas.getContext("2d");
-        staticCtx.clearRect(0, 0, width, height);
-        const staticGrad = staticCtx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width*0.7);
-        staticGrad.addColorStop(0, 'rgba(20, 25, 45, 0.95)');
-        staticGrad.addColorStop(1, 'rgba(7, 9, 18, 0.98)');
-        staticCtx.fillStyle = staticGrad;
-        staticCtx.fillRect(0, 0, width, height);
-        for (const world of sim.worlds) {
-          if (world.owner === NEUTRAL) continue;
-          const p = toMini(projectPoint(world.x, world.y));
-          const baseR = world.isCapital ? 22 : (world.kind === 'station' || world.kind === 'gate' ? 12 : 16);
-          const shipBoost = Math.min(8, Math.sqrt(Math.max(1, world.ships)) * 0.7);
-          const R = baseR + shipBoost;
-          staticCtx.fillStyle = cssFor(world.owner, sim.factions) + '24';
-          staticCtx.beginPath(); staticCtx.arc(p.x, p.y, R, 0, Math.PI * 2); staticCtx.fill();
-          staticCtx.fillStyle = cssFor(world.owner, sim.factions) + '18';
-          staticCtx.beginPath(); staticCtx.arc(p.x, p.y, R * 0.55, 0, Math.PI * 2); staticCtx.fill();
-        }
-        for (const [aId, bId] of sim.lanes) {
-          const wa = sim.getWorld(aId), wb = sim.getWorld(bId);
-          if (!wa || !wb || wa.owner === NEUTRAL || wa.owner !== wb.owner) continue;
-          const pa = toMini(projectPoint(wa.x, wa.y));
-          const pb = toMini(projectPoint(wb.x, wb.y));
-          const dx = pb.x - pa.x, dy = pb.y - pa.y;
-          const len = Math.hypot(dx, dy);
-          if (len < 1) continue;
-          const steps = Math.max(3, Math.floor(len / 12));
-          staticCtx.fillStyle = cssFor(wa.owner, sim.factions) + '14';
-          for (let i = 1; i < steps; i++) {
-            const t = i / steps;
-            const x = pa.x + dx * t;
-            const y = pa.y + dy * t;
-            const taper = Math.sin(t * Math.PI);
-            staticCtx.beginPath(); staticCtx.arc(x, y, 4 + taper * 2, 0, Math.PI * 2); staticCtx.fill();
-          }
-        }
-        staticCtx.strokeStyle = 'rgba(200, 162, 91, 0.15)';
-        staticCtx.lineWidth = 0.5;
-        for (const [a, b] of sim.lanes) {
-          const wa = sim.getWorld(a), wb = sim.getWorld(b);
-          if (!wa || !wb) continue;
-          const pa = toMini(projectPoint(wa.x, wa.y));
-          const pb = toMini(projectPoint(wb.x, wb.y));
-          staticCtx.beginPath();
-          staticCtx.moveTo(pa.x, pa.y);
-          staticCtx.lineTo(pb.x, pb.y);
-          staticCtx.stroke();
-        }
-        for (const world of sim.worlds) {
-          const p = toMini(projectPoint(world.x, world.y));
-          const r = world.isCapital ? 3.5 : world.isInvaderOrigin ? 4 : 2;
-          if (world.isCapital) {
-            staticCtx.fillStyle = cssFor(world.owner, sim.factions) + '40';
-            staticCtx.beginPath(); staticCtx.arc(p.x, p.y, r + 3, 0, Math.PI * 2); staticCtx.fill();
-          }
-          staticCtx.fillStyle = cssFor(world.owner, sim.factions);
-          staticCtx.beginPath(); staticCtx.arc(p.x, p.y, r, 0, Math.PI * 2); staticCtx.fill();
-          if (world.isCapital) {
-            staticCtx.strokeStyle = '#e8c879';
-            staticCtx.lineWidth = 1;
-            staticCtx.stroke();
-          }
-        }
-      }
-
-      ctx.clearRect(0, 0, width, height);
-      ctx.drawImage(this.minimapStaticCanvas, 0, 0);
-      for (const fleet of sim.fleets) {
-        const from = sim.getWorld(fleet.from);
-        const to = sim.getWorld(fleet.to);
-        if (!from || !to) continue;
-        const p1 = projectPoint(from.x, from.y);
-        const p2 = projectPoint(to.x, to.y);
-        const p = toMini({
-          x: Phaser.Math.Linear(p1.x, p2.x, Phaser.Math.Clamp(fleet.progress, 0, 1)),
-          y: Phaser.Math.Linear(p1.y, p2.y, Phaser.Math.Clamp(fleet.progress, 0, 1))
-        });
-        ctx.fillStyle = cssFor(fleet.owner, sim.factions);
-        ctx.fillRect(p.x - 1, p.y - 1, 2.5, 2.5);
-      }
-      const miniCamera = this.scene.cameras.main;
-      const miniView = {
-        left: miniCamera.scrollX,
-        top: miniCamera.scrollY,
-        right: miniCamera.scrollX + miniCamera.width / miniCamera.zoom,
-        bottom: miniCamera.scrollY + miniCamera.height / miniCamera.zoom
-      };
-      const miniA = toMini({ x: miniView.left, y: miniView.top });
-      const miniB = toMini({ x: miniView.right, y: miniView.bottom });
-      ctx.strokeStyle = '#e8c879';
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(miniA.x, miniA.y, miniB.x - miniA.x, miniB.y - miniA.y);
-      ctx.strokeStyle = '#c8a25b';
-      ctx.lineWidth = 2;
-      const miniBs = 6;
-      [[miniA.x, miniA.y, 1, 1], [miniB.x, miniA.y, -1, 1], [miniA.x, miniB.y, 1, -1], [miniB.x, miniB.y, -1, -1]].forEach(([x, y, dx, dy]) => {
-        ctx.beginPath();
-        ctx.moveTo(x, y + dy * miniBs);
-        ctx.lineTo(x, y);
-        ctx.lineTo(x + dx * miniBs, y);
-        ctx.stroke();
-      });
-      return;
 
       // Organic territory influence — match the main-map rendering. No fixed polygons.
       for (const world of sim.worlds) {
@@ -2759,82 +2403,34 @@
       window.__conquestShell = this.shell;
       window.__conquestSimulation = this.shell.simulation;
       window.__conquestScene = this;
-      this.layers = {
-        space: this.add.graphics().setDepth(0),
-        territory: this.add.graphics().setDepth(1),
-        lanes: this.add.graphics().setDepth(2),
-        worlds: this.add.graphics().setDepth(3),
-        dynamic: this.add.graphics().setDepth(4),
-        fleets: this.add.graphics().setDepth(5)
-      };
-      this.graphics = this.layers.dynamic;
+      this.graphics = this.add.graphics();
       this.labels = new Map();
       this.fleetLabels = new Map();
-      this.pointerState = { dragging: false, moved: false, lastX: 0, lastY: 0, lastTime: 0, velocityX: 0, velocityY: 0 };
+      this.pointerState = { dragging: false, moved: false, lastX: 0, lastY: 0 };
       this.pointerScreen = { x: 0, y: 0 };
-      this.pointerInside = false;
-      this.keysDown = new Set();
+      this.lastPointerDownAt = 0;
       this.lastMapRevision = 0;
       this.mapBounds = this.computeMapBounds();
-      this.cameraControl = this.createCameraControl();
-      this.renderCache = this.createRenderCache();
       this.hud = new Hud(this.shell, this);
       this.cameras.main.setBackgroundColor(0x000000);
       this.cameras.main.transparent = true;
       this.cursors = this.input.keyboard.createCursorKeys();
       this.keys = this.input.keyboard.addKeys("W,A,S,D");
       this.scale.on("resize", () => this.resize());
-      this.bindPointerEvents();
-      window.addEventListener("keydown", (event) => this.handleKeyDown(event));
-      window.addEventListener("keyup", (event) => this.handleKeyUp(event));
+      this.game.canvas.addEventListener("pointerdown", (event) => this.handleNativePointerDown(event));
+      this.game.canvas.addEventListener("mousedown", (event) => this.handleNativePointerDown(event));
+      window.addEventListener("pointermove", (event) => this.handleNativePointerMove(event));
+      window.addEventListener("mousemove", (event) => this.handleNativePointerMove(event));
+      window.addEventListener("pointerup", (event) => this.handleNativePointerUp(event));
+      window.addEventListener("mouseup", (event) => this.handleNativePointerUp(event));
       this.game.canvas.addEventListener("wheel", (event) => {
         event.preventDefault();
         const point = this.canvasPoint(event);
-        this.pointerInside = point.inside;
         this.pointerScreen = point;
         this.adjustZoom(event.deltaY > 0 ? -0.12 : 0.12);
       }, { passive: false });
       this.resize();
       this.resetCamera();
-    }
-
-    createCameraControl() {
-      return {
-        targetScrollX: 0,
-        targetScrollY: 0,
-        velocityX: 0,
-        velocityY: 0,
-        targetZoom: 1,
-        zoomFocusScreen: null,
-        zoomFocusWorld: null,
-        smoothScroll: false
-      };
-    }
-
-    createRenderCache() {
-      return {
-        layoutSignature: "",
-        worldSignature: "",
-        territorySignature: "",
-        laneSignature: "",
-        dynamicSignature: "",
-        projectedWorlds: new Map(),
-        lanePoints: [],
-        sectorCentroids: new Map()
-      };
-    }
-
-    bindPointerEvents() {
-      if (window.PointerEvent) {
-        this.game.canvas.addEventListener("pointerdown", (event) => this.handleNativePointerDown(event));
-        window.addEventListener("pointermove", (event) => this.handleNativePointerMove(event));
-        window.addEventListener("pointerup", (event) => this.handleNativePointerUp(event));
-        window.addEventListener("pointercancel", (event) => this.handleNativePointerUp(event));
-        return;
-      }
-      this.game.canvas.addEventListener("mousedown", (event) => this.handleNativePointerDown(event));
-      window.addEventListener("mousemove", (event) => this.handleNativePointerMove(event));
-      window.addEventListener("mouseup", (event) => this.handleNativePointerUp(event));
     }
 
     update(_time, delta) {
@@ -2843,7 +2439,6 @@
         if (this.lastMapRevision !== this.shell.simulation.mapRevision) {
           this.lastMapRevision = this.shell.simulation.mapRevision;
           this.mapBounds = this.computeMapBounds();
-          this.invalidateRenderCache();
           this.clampCamera();
         }
         this.updateCameraControls(delta / 1000);
@@ -2853,29 +2448,15 @@
     }
 
     resize() {
-      if (!this.pointerInside) this.pointerScreen = { x: this.cameras.main.width / 2, y: this.cameras.main.height / 2 };
       this.clampCamera();
     }
 
-    resetCamera(immediate = false) {
+    resetCamera() {
       const camera = this.cameras.main;
       const fitZoom = Math.min(camera.width / this.mapBounds.width, camera.height / this.mapBounds.height) * 0.92;
-      const zoom = Phaser.Math.Clamp(fitZoom, 0.54, 1.05);
-      const focus = this.computeMapFocus();
-      this.centerCameraOn(focus.x, focus.y, zoom, immediate || this.shell.screen !== "playing");
-    }
-
-    computeMapFocus() {
-      const sim = this.shell.simulation;
-      const worlds = sim.worlds?.length ? sim.worlds : GALAXY_TEMPLATE.worlds;
-      const capitalWorlds = worlds.filter((world) => world.isCapital && world.owner !== NEUTRAL);
-      const coreWorlds = worlds.filter((world) => world.sectorId === "nexus-sector");
-      const source = capitalWorlds.concat(coreWorlds).length ? capitalWorlds.concat(coreWorlds) : worlds;
-      const projected = source.map((world) => projectPoint(world.x, world.y));
-      return {
-        x: projected.reduce((sum, point) => sum + point.x, 0) / projected.length,
-        y: projected.reduce((sum, point) => sum + point.y, 0) / projected.length
-      };
+      camera.setZoom(Phaser.Math.Clamp(fitZoom, 0.54, 1.05));
+      camera.centerOn(this.mapBounds.centerX, this.mapBounds.centerY);
+      this.clampCamera();
     }
 
     computeMapBounds() {
@@ -2895,177 +2476,67 @@
       if (this.shell.screen !== "playing") return;
       const camera = this.cameras.main;
       const focus = { x: this.pointerScreen.x || camera.width / 2, y: this.pointerScreen.y || camera.height / 2 };
-      const control = this.cameraControl;
-      control.targetZoom = Phaser.Math.Clamp(control.targetZoom + amount, 0.48, 1.8);
-      control.zoomFocusScreen = focus;
-      control.zoomFocusWorld = this.screenToCameraWorld(focus.x, focus.y);
-      control.smoothScroll = true;
+      const before = this.screenToCameraWorld(focus.x, focus.y);
+      camera.setZoom(Phaser.Math.Clamp(camera.zoom + amount, 0.48, 1.8));
+      const after = this.screenToCameraWorld(focus.x, focus.y);
+      camera.scrollX += before.x - after.x;
+      camera.scrollY += before.y - after.y;
+      this.clampCamera();
     }
 
     updateCameraControls(deltaSeconds) {
       const camera = this.cameras.main;
-      const control = this.cameraControl;
-      let inputX = 0;
-      let inputY = 0;
-      const keyboardActive = !this.isKeyboardCaptureTarget(document.activeElement);
-      if (keyboardActive && (this.keysDown.has("arrowleft") || this.keysDown.has("a"))) inputX -= KEY_PAN_SPEED;
-      if (keyboardActive && (this.keysDown.has("arrowright") || this.keysDown.has("d"))) inputX += KEY_PAN_SPEED;
-      if (keyboardActive && (this.keysDown.has("arrowup") || this.keysDown.has("w"))) inputY -= KEY_PAN_SPEED;
-      if (keyboardActive && (this.keysDown.has("arrowdown") || this.keysDown.has("s"))) inputY += KEY_PAN_SPEED;
+      const speed = KEY_PAN_SPEED * deltaSeconds / camera.zoom;
+      let dx = 0;
+      let dy = 0;
+      if (this.cursors.left.isDown || this.keys.A.isDown) dx -= speed;
+      if (this.cursors.right.isDown || this.keys.D.isDown) dx += speed;
+      if (this.cursors.up.isDown || this.keys.W.isDown) dy -= speed;
+      if (this.cursors.down.isDown || this.keys.S.isDown) dy += speed;
 
-      if (this.pointerInside && !this.pointerState.dragging) {
-        if (this.pointerScreen.x <= EDGE_PAN_SIZE) inputX -= EDGE_PAN_SPEED;
-        if (this.pointerScreen.x >= camera.width - EDGE_PAN_SIZE) inputX += EDGE_PAN_SPEED;
-        if (this.pointerScreen.y <= EDGE_PAN_SIZE) inputY -= EDGE_PAN_SPEED;
-        if (this.pointerScreen.y >= camera.height - EDGE_PAN_SIZE) inputY += EDGE_PAN_SPEED;
+      if (this.pointerScreen.x <= EDGE_PAN_SIZE) dx -= EDGE_PAN_SPEED * deltaSeconds / camera.zoom;
+      if (this.pointerScreen.x >= camera.width - EDGE_PAN_SIZE) dx += EDGE_PAN_SPEED * deltaSeconds / camera.zoom;
+      if (this.pointerScreen.y <= EDGE_PAN_SIZE) dy -= EDGE_PAN_SPEED * deltaSeconds / camera.zoom;
+      if (this.pointerScreen.y >= camera.height - EDGE_PAN_SIZE) dy += EDGE_PAN_SPEED * deltaSeconds / camera.zoom;
+
+      if (dx || dy) {
+        camera.scrollX += dx;
+        camera.scrollY += dy;
+        this.clampCamera();
       }
-
-      if (inputX && inputY) {
-        inputX *= Math.SQRT1_2;
-        inputY *= Math.SQRT1_2;
-      }
-
-      const accel = Phaser.Math.Clamp(CAMERA_ACCELERATION * deltaSeconds, 0, 1);
-      const damping = Phaser.Math.Clamp(CAMERA_DAMPING * deltaSeconds, 0, 1);
-      const targetVelocityX = inputX / camera.zoom;
-      const targetVelocityY = inputY / camera.zoom;
-      control.velocityX = Phaser.Math.Linear(control.velocityX, targetVelocityX, inputX ? accel : damping);
-      control.velocityY = Phaser.Math.Linear(control.velocityY, targetVelocityY, inputY ? accel : damping);
-
-      if (!this.pointerState.dragging) {
-        control.targetScrollX += control.velocityX * deltaSeconds;
-        control.targetScrollY += control.velocityY * deltaSeconds;
-        control.smoothScroll = control.smoothScroll || !!inputX || !!inputY || Math.abs(control.velocityX) + Math.abs(control.velocityY) > 0.5;
-      }
-
-      this.applyCameraZoom(deltaSeconds);
-      this.applyCameraScroll(deltaSeconds);
     }
 
     clampCamera() {
       const camera = this.cameras.main;
-      const clamped = this.clampCameraPosition(camera.scrollX, camera.scrollY, camera.zoom);
-      camera.scrollX = clamped.x;
-      camera.scrollY = clamped.y;
-      this.syncCameraTargets(false);
-    }
-
-    clampCameraPosition(scrollX, scrollY, zoom = this.cameras.main.zoom) {
-      const camera = this.cameras.main;
-      const viewWidth = camera.width / zoom;
-      const viewHeight = camera.height / zoom;
-      let x = scrollX;
-      let y = scrollY;
+      const viewWidth = camera.width / camera.zoom;
+      const viewHeight = camera.height / camera.zoom;
       if (viewWidth >= this.mapBounds.width) {
-        x = this.mapBounds.centerX - viewWidth / 2;
+        camera.scrollX = this.mapBounds.centerX - viewWidth / 2;
       } else {
-        x = Phaser.Math.Clamp(x, this.mapBounds.left, this.mapBounds.right - viewWidth);
+        camera.scrollX = Phaser.Math.Clamp(camera.scrollX, this.mapBounds.left, this.mapBounds.right - viewWidth);
       }
       if (viewHeight >= this.mapBounds.height) {
-        y = this.mapBounds.centerY - viewHeight / 2;
+        camera.scrollY = this.mapBounds.centerY - viewHeight / 2;
       } else {
-        y = Phaser.Math.Clamp(y, this.mapBounds.top, this.mapBounds.bottom - viewHeight);
-      }
-      return { x, y };
-    }
-
-    syncCameraTargets(resetVelocity = true) {
-      const camera = this.cameras.main;
-      const control = this.cameraControl;
-      control.targetScrollX = camera.scrollX;
-      control.targetScrollY = camera.scrollY;
-      control.targetZoom = camera.zoom;
-      if (resetVelocity) {
-        control.velocityX = 0;
-        control.velocityY = 0;
-      }
-    }
-
-    centerCameraOn(x, y, zoom = this.cameraControl.targetZoom, immediate = false) {
-      const camera = this.cameras.main;
-      const clamped = this.clampCameraPosition(x - camera.width / zoom / 2, y - camera.height / zoom / 2, zoom);
-      const control = this.cameraControl;
-      control.targetZoom = zoom;
-      control.targetScrollX = clamped.x;
-      control.targetScrollY = clamped.y;
-      control.zoomFocusScreen = null;
-      control.zoomFocusWorld = null;
-      control.smoothScroll = !immediate;
-      control.velocityX = 0;
-      control.velocityY = 0;
-      if (immediate) {
-        camera.setZoom(zoom);
-        camera.scrollX = clamped.x;
-        camera.scrollY = clamped.y;
-        this.syncCameraTargets(true);
-      }
-    }
-
-    applyCameraZoom(deltaSeconds) {
-      const camera = this.cameras.main;
-      const control = this.cameraControl;
-      if (Math.abs(camera.zoom - control.targetZoom) < 0.001) {
-        camera.setZoom(control.targetZoom);
-        return;
-      }
-      const focusScreen = control.zoomFocusScreen || { x: camera.width / 2, y: camera.height / 2 };
-      const focusWorld = control.zoomFocusWorld || this.screenToCameraWorld(focusScreen.x, focusScreen.y);
-      const amount = 1 - Math.pow(1 - CAMERA_ZOOM_SMOOTHING, Math.max(1, deltaSeconds * 60));
-      camera.setZoom(Phaser.Math.Linear(camera.zoom, control.targetZoom, amount));
-      const clamped = this.clampCameraPosition(focusWorld.x - focusScreen.x / camera.zoom, focusWorld.y - focusScreen.y / camera.zoom, camera.zoom);
-      camera.scrollX = clamped.x;
-      camera.scrollY = clamped.y;
-      control.targetScrollX = clamped.x;
-      control.targetScrollY = clamped.y;
-      control.smoothScroll = true;
-    }
-
-    applyCameraScroll(deltaSeconds) {
-      const camera = this.cameras.main;
-      const control = this.cameraControl;
-      const target = this.clampCameraPosition(control.targetScrollX, control.targetScrollY, camera.zoom);
-      control.targetScrollX = target.x;
-      control.targetScrollY = target.y;
-      if (!control.smoothScroll) {
-        camera.scrollX = target.x;
-        camera.scrollY = target.y;
-        return;
-      }
-      const amount = 1 - Math.pow(1 - CAMERA_JUMP_SMOOTHING, Math.max(1, deltaSeconds * 60));
-      camera.scrollX = Phaser.Math.Linear(camera.scrollX, target.x, amount);
-      camera.scrollY = Phaser.Math.Linear(camera.scrollY, target.y, amount);
-      const clamped = this.clampCameraPosition(camera.scrollX, camera.scrollY, camera.zoom);
-      camera.scrollX = clamped.x;
-      camera.scrollY = clamped.y;
-      if (Math.abs(camera.scrollX - target.x) + Math.abs(camera.scrollY - target.y) < 0.25) {
-        camera.scrollX = target.x;
-        camera.scrollY = target.y;
-        control.smoothScroll = Math.abs(control.velocityX) + Math.abs(control.velocityY) > 0.5;
+        camera.scrollY = Phaser.Math.Clamp(camera.scrollY, this.mapBounds.top, this.mapBounds.bottom - viewHeight);
       }
     }
 
     jumpToMinimap(nx, ny) {
+      const camera = this.cameras.main;
       const x = this.mapBounds.left + this.mapBounds.width * nx;
       const y = this.mapBounds.top + this.mapBounds.height * ny;
-      this.centerCameraOn(x, y, this.cameraControl.targetZoom, false);
+      camera.centerOn(x, y);
+      this.clampCamera();
     }
 
     isUiTarget(target) {
       return !!target.closest?.("#hud-root button, #hud-root select, #hud-root details, .main-menu, .minimap, .selected-panel");
     }
 
-    isKeyboardCaptureTarget(target) {
-      const control = target?.closest?.("#hud-root button, #hud-root select, #hud-root summary");
-      if (control) return control.offsetParent !== null;
-      const menu = target?.closest?.(".main-menu");
-      return !!menu && menu.classList.contains("visible");
-    }
-
     canvasPoint(event) {
       const rect = this.game.canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      return { x, y, inside: x >= 0 && y >= 0 && x <= rect.width && y <= rect.height };
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
     }
 
     screenToCameraWorld(x, y) {
@@ -3074,42 +2545,30 @@
     }
 
     handleNativePointerDown(event) {
+      if (event.type === "mousedown" && performance.now() - this.lastPointerDownAt < 80) return;
+      if (event.type === "pointerdown") this.lastPointerDownAt = performance.now();
       const point = this.canvasPoint(event);
-      this.pointerInside = point.inside;
       this.pointerScreen = point;
       if (this.shell.screen !== "playing" || this.isUiTarget(event.target)) return;
       const projected = this.screenToCameraWorld(point.x, point.y);
       const clickedWorld = this.findWorldAt(projected.x, projected.y);
       if (clickedWorld) {
         this.shell.simulation.selectWorld(clickedWorld.id);
-        this.pointerState = { dragging: false, moved: false, lastX: point.x, lastY: point.y, lastTime: performance.now(), velocityX: 0, velocityY: 0 };
+        this.pointerState = { dragging: false, moved: false, lastX: point.x, lastY: point.y };
         return;
       }
-      this.pointerState = { dragging: true, moved: false, lastX: point.x, lastY: point.y, lastTime: performance.now(), velocityX: 0, velocityY: 0 };
-      this.cameraControl.smoothScroll = false;
-      this.cameraControl.velocityX = 0;
-      this.cameraControl.velocityY = 0;
+      this.pointerState = { dragging: true, moved: false, lastX: point.x, lastY: point.y };
     }
 
     handleNativePointerMove(event) {
       const point = this.canvasPoint(event);
-      this.pointerInside = point.inside;
       this.pointerScreen = point;
       if (!this.pointerState.dragging) return;
-      if (event.buttons !== undefined && event.buttons === 0) {
-        this.handleNativePointerUp(event);
-        return;
-      }
       const dx = point.x - this.pointerState.lastX;
       const dy = point.y - this.pointerState.lastY;
-      const now = performance.now();
-      const elapsed = Math.max(8, now - (this.pointerState.lastTime || now));
       if (Math.abs(dx) + Math.abs(dy) > 2) this.pointerState.moved = true;
       this.pointerState.lastX = point.x;
       this.pointerState.lastY = point.y;
-      this.pointerState.lastTime = now;
-      this.pointerState.velocityX = Phaser.Math.Clamp((-dx / this.cameras.main.zoom) / (elapsed / 1000), -DRAG_GLIDE_MAX_SPEED, DRAG_GLIDE_MAX_SPEED);
-      this.pointerState.velocityY = Phaser.Math.Clamp((-dy / this.cameras.main.zoom) / (elapsed / 1000), -DRAG_GLIDE_MAX_SPEED, DRAG_GLIDE_MAX_SPEED);
       const camera = this.cameras.main;
       camera.scrollX -= dx / camera.zoom;
       camera.scrollY -= dy / camera.zoom;
@@ -3118,156 +2577,21 @@
 
     handleNativePointerUp(event) {
       const point = this.canvasPoint(event);
-      this.pointerInside = point.inside;
       this.pointerScreen = point;
-      if (this.pointerState.dragging && this.pointerState.moved) {
-        const glideX = this.pointerState.velocityX / DRAG_GLIDE_DAMPING;
-        const glideY = this.pointerState.velocityY / DRAG_GLIDE_DAMPING;
-        if (Math.abs(glideX) + Math.abs(glideY) > 8) {
-          const target = this.clampCameraPosition(this.cameras.main.scrollX + glideX, this.cameras.main.scrollY + glideY, this.cameras.main.zoom);
-          this.cameraControl.targetScrollX = target.x;
-          this.cameraControl.targetScrollY = target.y;
-          this.cameraControl.smoothScroll = true;
-        }
-      }
       this.pointerState.dragging = false;
     }
 
-    handleKeyDown(event) {
-      const key = event.key.toLowerCase();
-      if (!["w", "a", "s", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"].includes(key)) return;
-      this.keysDown.add(key);
-      if (this.shell?.screen === "playing" && !this.isKeyboardCaptureTarget(event.target)) event.preventDefault();
-    }
-
-    handleKeyUp(event) {
-      this.keysDown.delete(event.key.toLowerCase());
-    }
-
     draw() {
-      this.withGraphics(this.layers.space, () => {
-        this.layers.space.clear();
-        this.drawSpace();
-      });
+      this.graphics.clear();
+      this.drawSpace();
       if (this.shell.screen === "menu") {
-        this.clearGameplayLayers();
         this.hideLabels();
         return;
       }
-
-      this.refreshRenderCache();
-      this.drawCachedMapLayers();
-      this.withGraphics(this.layers.dynamic, () => {
-        this.layers.dynamic.clear();
-        this.drawLaneBeacons();
-        this.drawWorldAccents();
-      });
-      this.withGraphics(this.layers.fleets, () => {
-        this.layers.fleets.clear();
-        this.drawFleets();
-      });
-      this.updateLabelVisibility();
+      if (this.hud.overlays.sectors) this.drawTerritories();
+      this.drawLanes();
+      this.drawWorldsAndFleets();
       this.cleanupFleetLabels();
-    }
-
-    withGraphics(graphics, drawFn) {
-      const previous = this.graphics;
-      this.graphics = graphics;
-      try {
-        return drawFn();
-      } finally {
-        this.graphics = previous;
-      }
-    }
-
-    clearGameplayLayers() {
-      for (const key of ["territory", "lanes", "worlds", "dynamic", "fleets"]) this.layers[key].clear();
-    }
-
-    invalidateRenderCache() {
-      this.renderCache = this.createRenderCache();
-      this.clearGameplayLayers();
-    }
-
-    refreshRenderCache() {
-      const sim = this.shell.simulation;
-      const layoutSignature = [
-        sim.mapRevision,
-        sim.worlds.map((world) => `${world.id}:${world.x}:${world.y}:${world.kind}:${world.isCapital ? 1 : 0}:${world.isInvaderOrigin ? 1 : 0}`).join("|"),
-        sim.lanes.map((lane) => lane.join(">")).join("|")
-      ].join("::");
-      if (layoutSignature !== this.renderCache.layoutSignature) {
-        const projectedWorlds = new Map();
-        for (const world of sim.worlds) {
-          const p = projectPoint(world.x, world.y);
-          projectedWorlds.set(world.id, {
-            x: p.x,
-            y: p.y,
-            depth: world.x + world.y,
-            radius: world.isCapital ? 22 : (world.kind === "station" || world.kind === "gate" ? 14 : 18)
-          });
-        }
-        const lanePoints = sim.lanes.map(([fromId, toId]) => {
-          const from = sim.getWorld(fromId);
-          const to = sim.getWorld(toId);
-          const fromPoint = projectedWorlds.get(fromId);
-          const toPoint = projectedWorlds.get(toId);
-          return from && to && fromPoint && toPoint ? { fromId, toId, from, to, fromPoint, toPoint } : null;
-        }).filter(Boolean);
-        const sectorCentroids = new Map();
-        for (const sector of sim.sectors) {
-          const points = sector.worldIds.map((id) => projectedWorlds.get(id)).filter(Boolean);
-          if (points.length >= 2) {
-            sectorCentroids.set(sector.id, {
-              x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-              y: points.reduce((sum, point) => sum + point.y, 0) / points.length
-            });
-          }
-        }
-        this.renderCache.layoutSignature = layoutSignature;
-        this.renderCache.projectedWorlds = projectedWorlds;
-        this.renderCache.lanePoints = lanePoints;
-        this.renderCache.sectorCentroids = sectorCentroids;
-        this.renderCache.worldSignature = "";
-        this.renderCache.territorySignature = "";
-        this.renderCache.laneSignature = "";
-      }
-    }
-
-    drawCachedMapLayers() {
-      const sim = this.shell.simulation;
-      const worldSignature = sim.worlds.map((world) => `${world.id}:${world.owner}:${world.ships}:${world.level}`).join("|");
-      const territorySignature = `${this.hud.overlays.sectors ? 1 : 0}:${worldSignature}`;
-      const laneSignature = [
-        this.hud.overlays.lanes ? 1 : 0,
-        sim.selectedWorldId || "",
-        sim.worlds.map((world) => `${world.id}:${world.owner}`).join("|"),
-        this.renderCache.layoutSignature
-      ].join("::");
-
-      if (territorySignature !== this.renderCache.territorySignature) {
-        this.renderCache.territorySignature = territorySignature;
-        this.withGraphics(this.layers.territory, () => {
-          this.layers.territory.clear();
-          if (this.hud.overlays.sectors) this.drawTerritories();
-        });
-      }
-
-      if (laneSignature !== this.renderCache.laneSignature) {
-        this.renderCache.laneSignature = laneSignature;
-        this.withGraphics(this.layers.lanes, () => {
-          this.layers.lanes.clear();
-          this.drawLaneBases();
-        });
-      }
-
-      if (worldSignature !== this.renderCache.worldSignature) {
-        this.renderCache.worldSignature = worldSignature;
-        this.withGraphics(this.layers.worlds, () => {
-          this.layers.worlds.clear();
-          this.drawStaticWorlds();
-        });
-      }
     }
 
     drawSpace() {
@@ -3320,7 +2644,7 @@
       // 1. Single soft halo per owned world — one ring only, low alpha. No stacking.
       for (const world of sim.worlds) {
         if (world.owner === NEUTRAL) continue;
-        const p = this.renderCache.projectedWorlds.get(world.id) || projectPoint(world.x, world.y);
+        const p = projectPoint(world.x, world.y);
         const color = colorFor(world.owner, sim.factions);
         const baseR = world.isCapital ? 110 : (world.kind === 'station' || world.kind === 'gate' ? 60 : 80);
         const shipBoost = Math.min(28, Math.sqrt(Math.max(1, world.ships)) * 3);
@@ -3337,12 +2661,11 @@
       // 2. Connective band between same-owner adjacent worlds — single thin lozenge,
       //    lower alpha, fewer steps than before
       for (const [fromId, toId] of sim.lanes) {
-        const lane = this.renderCache.lanePoints.find((candidate) => candidate.fromId === fromId && candidate.toId === toId);
-        const a = lane?.from || sim.getWorld(fromId);
-        const b = lane?.to || sim.getWorld(toId);
+        const a = sim.getWorld(fromId);
+        const b = sim.getWorld(toId);
         if (!a || !b || a.owner === NEUTRAL || a.owner !== b.owner) continue;
-        const p1 = lane?.fromPoint || projectPoint(a.x, a.y);
-        const p2 = lane?.toPoint || projectPoint(b.x, b.y);
+        const p1 = projectPoint(a.x, a.y);
+        const p2 = projectPoint(b.x, b.y);
         const color = colorFor(a.owner, sim.factions);
         const dx = p2.x - p1.x, dy = p2.y - p1.y;
         const len = Math.hypot(dx, dy);
@@ -3361,7 +2684,7 @@
       // 3. Capital — subtle pulse, single ring, no fill stacking
       for (const world of sim.worlds) {
         if (!world.isCapital || world.owner === NEUTRAL) continue;
-        const p = this.renderCache.projectedWorlds.get(world.id) || projectPoint(world.x, world.y);
+        const p = projectPoint(world.x, world.y);
         const color = colorFor(world.owner, sim.factions);
         const pulse = 1 + Math.sin(phase * 1.2) * 0.05;
         this.graphics.lineStyle(0.6, color, 0.22);
@@ -3372,23 +2695,32 @@
       for (const sector of sim.sectors) {
         const owner = sim.getSectorOwner(sector);
         if (!owner) continue;
-        const centroid = this.renderCache.sectorCentroids.get(sector.id);
-        if (!centroid) continue;
+        const points = sector.worldIds.map((id) => {
+          const world = sim.getWorld(id);
+          return world ? projectPoint(world.x, world.y) : null;
+        }).filter(Boolean);
+        if (points.length < 2) continue;
+        const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+        const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
         const color = colorFor(owner, sim.factions);
         this.graphics.fillStyle(0x000000, 0.4);
-        this.graphics.fillCircle(centroid.x, centroid.y, 4.5);
+        this.graphics.fillCircle(cx, cy, 4.5);
         this.graphics.fillStyle(color, 0.85);
-        this.graphics.fillCircle(centroid.x, centroid.y, 3);
+        this.graphics.fillCircle(cx, cy, 3);
         this.graphics.lineStyle(0.8, 0xc8a25b, 0.6);
-        this.graphics.strokeCircle(centroid.x, centroid.y, 5);
+        this.graphics.strokeCircle(cx, cy, 5);
       }
     }
 
-    drawLaneBases() {
+    drawLanes() {
       const sim = this.shell.simulation;
-      for (const lane of this.renderCache.lanePoints) {
-        const { from, to, fromPoint, toPoint } = lane;
+      const phase = (sim.elapsed || 0) % 4;
+      for (const [fromId, toId] of sim.lanes) {
+        const from = sim.getWorld(fromId);
+        const to = sim.getWorld(toId);
         if (!from || !to) continue;
+        const fromPoint = projectPoint(from.x, from.y);
+        const toPoint = projectPoint(to.x, to.y);
         const selected = sim.selectedWorldId && (from.id === sim.selectedWorldId || to.id === sim.selectedWorldId);
         const sameOwner = from.owner !== NEUTRAL && from.owner === to.owner;
         const sharedColor = sameOwner ? colorFor(from.owner, sim.factions) : 0x000000;
@@ -3408,141 +2740,29 @@
           this.graphics.lineBetween(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
 
           // Animated traveling waypoint pulse — beacon drifting along the lane
+          const dx = toPoint.x - fromPoint.x;
+          const dy = toPoint.y - fromPoint.y;
+          const t = ((phase + (fromId.length + toId.length) * 0.13) % 4) / 4;
+          const px = fromPoint.x + dx * t;
+          const py = fromPoint.y + dy * t;
+          this.graphics.fillStyle(0xe8c879, selected ? 0.95 : 0.5);
+          this.graphics.fillCircle(px, py, selected ? 2.6 : 1.6);
+          if (selected) {
+            this.graphics.lineStyle(1, 0xe8c879, 0.4);
+            this.graphics.strokeCircle(px, py, 6);
+          }
         }
-      }
-    }
-
-    drawLaneBeacons() {
-      if (!this.hud.overlays.lanes) return;
-      const sim = this.shell.simulation;
-      const phase = (sim.elapsed || 0) % 4;
-      for (const lane of this.renderCache.lanePoints) {
-        const { fromId, toId, from, to, fromPoint, toPoint } = lane;
-        if (!from || !to) continue;
-        const selected = sim.selectedWorldId && (from.id === sim.selectedWorldId || to.id === sim.selectedWorldId);
-        const dx = toPoint.x - fromPoint.x;
-        const dy = toPoint.y - fromPoint.y;
-        const t = ((phase + (fromId.length + toId.length) * 0.13) % 4) / 4;
-        const px = fromPoint.x + dx * t;
-        const py = fromPoint.y + dy * t;
-        this.graphics.fillStyle(0xe8c879, selected ? 0.95 : 0.5);
-        this.graphics.fillCircle(px, py, selected ? 2.6 : 1.6);
-        if (selected) {
-          this.graphics.lineStyle(1, 0xe8c879, 0.4);
-          this.graphics.strokeCircle(px, py, 6);
-        }
-      }
-    }
-
-    drawStaticWorlds() {
-      const sim = this.shell.simulation;
-      const worlds = sim.worlds.slice().sort((a, b) => a.x + a.y - (b.x + b.y));
-      for (const world of worlds) this.drawWorld(world, true, false);
-    }
-
-    drawWorldAccents() {
-      const sim = this.shell.simulation;
-      for (const world of sim.worlds) {
-        const p = this.renderCache.projectedWorlds.get(world.id) || projectPoint(world.x, world.y);
-        if (!this.isProjectedInView(p.x, p.y, LABEL_CULL_PADDING)) continue;
-        this.drawWorldAccent(world, p);
-      }
-    }
-
-    drawWorldAccent(world, p) {
-      const sim = this.shell.simulation;
-      const baseRadius = this.renderCache.projectedWorlds.get(world.id)?.radius || (world.isCapital ? 22 : (world.kind === "station" || world.kind === "gate" ? 14 : 18));
-      const phase = sim.elapsed || 0;
-      const color = colorFor(world.owner, sim.factions);
-      if (world.isCapital && world.owner !== NEUTRAL) {
-        const tickR1 = baseRadius * 1.7;
-        const tickR2 = baseRadius * 1.95;
-        for (let i = 0; i < 4; i++) {
-          const a = i * Math.PI / 2 + phase * 0.15;
-          this.graphics.lineStyle(1.4, 0xffd27a, 0.9);
-          this.graphics.lineBetween(
-            p.x + Math.cos(a) * tickR1, p.y + Math.sin(a) * tickR1,
-            p.x + Math.cos(a) * tickR2, p.y + Math.sin(a) * tickR2
-          );
-        }
-        const pulse = 1 + Math.sin(phase * 1.2) * 0.05;
-        this.graphics.lineStyle(0.6, color, 0.22);
-        this.graphics.strokeCircle(p.x, p.y, 140 * pulse);
-      }
-      if (world.isInvaderOrigin || sim.isInvader(world.owner)) {
-        const pulse = 1 + Math.sin(phase * 2) * 0.08;
-        this.graphics.lineStyle(world.isInvaderOrigin ? 2.4 : 1.4, INVADER_FACTION.color, world.isInvaderOrigin ? 0.95 : 0.7);
-        this.graphics.strokeCircle(p.x, p.y, baseRadius * 2.2 * pulse);
-        this.graphics.lineStyle(0.6, 0xffffff, 0.4);
-        this.graphics.strokeCircle(p.x, p.y, baseRadius * 2.6 * pulse);
-      }
-      if (world.id === sim.selectedWorldId) {
-        const r = baseRadius * 1.85;
-        const len = 7;
-        this.graphics.lineStyle(2, 0xffe9b8, 1);
-        for (let i = 0; i < 4; i++) {
-          const a = Math.PI / 4 + i * Math.PI / 2;
-          const cx = p.x + Math.cos(a) * r;
-          const cy = p.y + Math.sin(a) * r;
-          const ax = Math.cos(a + Math.PI / 4), ay = Math.sin(a + Math.PI / 4);
-          const bx = Math.cos(a - Math.PI / 4), by = Math.sin(a - Math.PI / 4);
-          this.graphics.lineBetween(cx, cy, cx - ax * len, cy - ay * len);
-          this.graphics.lineBetween(cx, cy, cx - bx * len, cy - by * len);
-        }
-      }
-    }
-
-    drawFleets() {
-      const sim = this.shell.simulation;
-      const fleets = sim.fleets.map((fleet) => {
-        const from = sim.getWorld(fleet.from);
-        const to = sim.getWorld(fleet.to);
-        if (!from || !to) return null;
-        const fromPoint = this.renderCache.projectedWorlds.get(from.id) || projectPoint(from.x, from.y);
-        const toPoint = this.renderCache.projectedWorlds.get(to.id) || projectPoint(to.x, to.y);
-        const t = Phaser.Math.Clamp(fleet.progress, 0, 1);
-        const x = Phaser.Math.Linear(fromPoint.x, toPoint.x, t);
-        const y = Phaser.Math.Linear(fromPoint.y, toPoint.y, t);
-        if (!this.isProjectedInView(x, y, LABEL_CULL_PADDING)) {
-          if (this.fleetLabels.has(fleet.id)) this.fleetLabels.get(fleet.id).setVisible(false);
-          return null;
-        }
-        return { fleet, from, to, depth: Phaser.Math.Linear(from.x + from.y, to.x + to.y, t) + 2 };
-      }).filter(Boolean);
-      fleets.sort((a, b) => a.depth - b.depth);
-      for (const item of fleets) this.drawFleet(item.fleet, item.from, item.to);
-    }
-
-    updateLabelVisibility() {
-      for (const [id, label] of this.labels) {
-        const p = this.renderCache.projectedWorlds.get(id);
-        label.setVisible(!!p && this.hud.overlays.planetLabels && this.isProjectedInView(p.x, p.y, LABEL_CULL_PADDING));
       }
     }
 
     drawWorldsAndFleets() {
       const sim = this.shell.simulation;
       const renderItems = [];
-      for (const world of sim.worlds) {
-        const p = projectPoint(world.x, world.y);
-        if (!this.isProjectedInView(p.x, p.y, LABEL_CULL_PADDING)) {
-          if (this.labels.has(world.id)) this.labels.get(world.id).setVisible(false);
-          continue;
-        }
-        renderItems.push({ type: "world", world, depth: world.x + world.y });
-      }
+      for (const world of sim.worlds) renderItems.push({ type: "world", world, depth: world.x + world.y });
       for (const fleet of sim.fleets) {
         const from = sim.getWorld(fleet.from);
         const to = sim.getWorld(fleet.to);
         if (!from || !to) continue;
-        const fromPoint = projectPoint(from.x, from.y);
-        const toPoint = projectPoint(to.x, to.y);
-        const x = Phaser.Math.Linear(fromPoint.x, toPoint.x, Phaser.Math.Clamp(fleet.progress, 0, 1));
-        const y = Phaser.Math.Linear(fromPoint.y, toPoint.y, Phaser.Math.Clamp(fleet.progress, 0, 1));
-        if (!this.isProjectedInView(x, y, LABEL_CULL_PADDING)) {
-          if (this.fleetLabels.has(fleet.id)) this.fleetLabels.get(fleet.id).setVisible(false);
-          continue;
-        }
         renderItems.push({ type: "fleet", fleet, from, to, depth: Phaser.Math.Linear(from.x + from.y, to.x + to.y, Phaser.Math.Clamp(fleet.progress, 0, 1)) + 2 });
       }
       renderItems.sort((a, b) => a.depth - b.depth);
@@ -3552,16 +2772,15 @@
       }
     }
 
-    drawWorld(world, updateLabel = true, drawAnimated = true) {
+    drawWorld(world) {
       const sim = this.shell.simulation;
-      const cached = this.renderCache.projectedWorlds.get(world.id);
-      const p = cached || projectPoint(world.x, world.y);
-      const baseRadius = cached?.radius || (world.isCapital ? 22 : (world.kind === "station" || world.kind === "gate" ? 14 : 18));
-      const isSelected = drawAnimated && world.id === sim.selectedWorldId;
+      const p = projectPoint(world.x, world.y);
+      const baseRadius = world.isCapital ? 22 : (world.kind === "station" || world.kind === "gate" ? 14 : 18);
+      const isSelected = world.id === sim.selectedWorldId;
       const color = colorFor(world.owner, sim.factions);
       const heldSector = sim.getSectorOwnerById(world.sectorId) === world.owner && world.owner !== NEUTRAL;
       const isStation = world.kind === "station" || world.kind === "shipyard" || world.kind === "gate" || world.kind === "fortress";
-      const phase = drawAnimated ? (sim.elapsed || 0) : 0;
+      const phase = (sim.elapsed || 0);
 
       // Owner halo — soft glow on owned worlds
       if (world.owner !== NEUTRAL) {
@@ -3637,15 +2856,13 @@
         }
       }
 
-      if (updateLabel) {
-        const label = this.getLabel(world.id);
-        const yOffset = baseRadius + 18;
-        label.setText(`${world.name}\n${world.ships}`);
-        label.setPosition(p.x, p.y + yOffset);
-        label.setColor(world.owner === NEUTRAL ? "#9fb0c8" : "#ffe9b8");
-        label.setOrigin(0.5, 0);
-        label.setVisible(this.hud.overlays.planetLabels && this.isProjectedInView(p.x, p.y, LABEL_CULL_PADDING));
-      }
+      const label = this.getLabel(world.id);
+      const yOffset = baseRadius + 18;
+      label.setText(`${world.name}\n${world.ships}`);
+      label.setPosition(p.x, p.y + yOffset);
+      label.setColor(world.owner === NEUTRAL ? "#9fb0c8" : "#ffe9b8");
+      label.setOrigin(0.5, 0);
+      label.setVisible(this.hud.overlays.planetLabels);
     }
 
     drawPlanetGlyph(p, r, world, color, isSelected, phase) {
@@ -3794,8 +3011,8 @@
 
     drawFleet(fleet, from, to) {
       const sim = this.shell.simulation;
-      const fromPoint = this.renderCache.projectedWorlds.get(from.id) || projectPoint(from.x, from.y);
-      const toPoint = this.renderCache.projectedWorlds.get(to.id) || projectPoint(to.x, to.y);
+      const fromPoint = projectPoint(from.x, from.y);
+      const toPoint = projectPoint(to.x, to.y);
       const t = Phaser.Math.Clamp(fleet.progress, 0, 1);
       const x = Phaser.Math.Linear(fromPoint.x, toPoint.x, t);
       const y = Phaser.Math.Linear(fromPoint.y, toPoint.y, t);
@@ -3819,16 +3036,7 @@
       label.setText(`${fleet.ships} ${TIER_ROMAN[fleet.tier || 1]}`);
       label.setPosition(x, y - 8);
       label.setOrigin(0.5);
-      label.setVisible(this.hud.overlays.fleetLabels && this.isProjectedInView(x, y, LABEL_CULL_PADDING));
-    }
-
-    isProjectedInView(x, y, padding = 0) {
-      const camera = this.cameras.main;
-      const left = camera.scrollX - padding;
-      const top = camera.scrollY - padding;
-      const right = camera.scrollX + camera.width / camera.zoom + padding;
-      const bottom = camera.scrollY + camera.height / camera.zoom + padding;
-      return x >= left && x <= right && y >= top && y <= bottom;
+      label.setVisible(this.hud.overlays.fleetLabels);
     }
 
     hideLabels() {
@@ -3838,7 +3046,7 @@
 
     findWorldAt(projectedX, projectedY) {
       return this.shell.simulation.worlds.find((world) => {
-        const p = this.renderCache.projectedWorlds.get(world.id) || projectPoint(world.x, world.y);
+        const p = projectPoint(world.x, world.y);
         const rx = world.isCapital ? 48 : 40;
         const ry = world.isCapital ? 30 : 24;
         const dx = (projectedX - p.x) / rx;

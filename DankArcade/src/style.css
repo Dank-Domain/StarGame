@@ -663,80 +663,6 @@ body {
   box-shadow: inset 0 -1px 0 rgba(0,0,0,0.3);
 }
 
-.chronicle-panel {
-  position: absolute;
-  top: 88px;
-  right: 14px;
-  z-index: 42;
-  display: none;
-  width: min(430px, calc(100vw - 28px));
-  max-height: min(520px, calc(100vh - 120px));
-  background: linear-gradient(155deg, rgb(38 32 24 / var(--panel-opacity)), rgb(20 18 26 / var(--panel-opacity-deep)));
-  border: 1px solid var(--brass-3);
-  border-radius: 2px;
-  box-shadow:
-    inset 0 1px 0 rgba(232,200,121,0.18),
-    inset 0 -1px 0 rgba(0,0,0,0.6),
-    0 18px 40px rgba(0,0,0,0.62);
-  overflow: hidden;
-}
-.chronicle-panel.visible { display: block; }
-.chronicle-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: linear-gradient(180deg, rgba(60, 48, 28, 0.6), rgba(30, 24, 16, 0.4));
-  border-bottom: 1px solid var(--brass-3);
-  color: var(--brass-1);
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-}
-.chronicle-close {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid var(--brass-3);
-  background: transparent;
-  color: var(--brass-1);
-  cursor: pointer;
-}
-.chronicle-close:hover { background: rgba(232,200,121,0.1); }
-.chronicle-list {
-  display: grid;
-  gap: 7px;
-  max-height: 448px;
-  overflow-y: auto;
-  padding: 10px;
-}
-.chronicle-event,
-.chronicle-empty {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 9px;
-  padding: 8px 9px;
-  border-left: 2px solid var(--event-color, var(--brass-3));
-  background: linear-gradient(90deg, rgba(232,200,121,0.07), rgba(255,255,255,0.015));
-  color: var(--parchment-2);
-  font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 1.25;
-}
-.chronicle-event b {
-  color: var(--brass-1);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-}
-.chronicle-event span { min-width: 0; }
-.chronicle-empty {
-  grid-template-columns: 1fr;
-  color: var(--parchment-faint);
-  font-style: italic;
-}
-
 /* --- Standings panel (left) --- */
 .standings {
   position: absolute;
@@ -1399,8 +1325,6 @@ body {
   .rail-section { padding: 8px 12px; }
   .rail-section.brand { width: 100%; }
   .rail-section.status { width: 100%; }
-  .chronicle-panel { top: 150px; right: 14px; max-height: 240px; }
-  .chronicle-list { max-height: 182px; }
   .standings { width: calc(100vw - 28px); top: auto; bottom: 220px; max-height: 220px; }
   .standings-body { max-height: 160px; }
   .dossier { width: calc(100vw - 28px); top: auto; bottom: 14px; right: 14px; }

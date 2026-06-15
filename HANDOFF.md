@@ -1,282 +1,353 @@
 # Starline Conquest Handoff
 
-## Project Summary
-This is a 2D Phaser browser strategy game prototype called **Starline Conquest**. The player or spectator watches factions fight across an isometric galaxy map, capture worlds, control sectors, upgrade planets, launch higher-tier fleets, trigger capital rewards, and eventually face a late-game invader if nobody wins quickly enough.
+Last updated: 2026-05-09
 
-The playable version still runs without npm or Vite by serving `index.html` locally and loading Phaser from a CDN. The TypeScript/Vite files are scaffold leftovers; do not assume they are live.
+## Current Goal
 
-Current local URL:
+Continue development from the updated brass-and-parchment `DankArcade` UI, now made live at the project root. The old blue HUD/runtime should not be treated as the design source anymore.
 
-```text
-http://127.0.0.1:5173
-```
+The project is a Phaser browser strategy game where factions fight over an isometric galaxy, capture worlds, upgrade planets, control sectors, launch fleets, and eventually face the Void Ascendancy crisis.
+
+## Most Important Context
+
+- The live game is at the project root:
+  - `index.html`
+  - `src/playable-game.js`
+  - `src/style.css`
+- `DankArcade/` is the visual source of truth and was copied into the root runtime.
+- Do not migrate gameplay work into the unused TypeScript/Vite scaffold unless explicitly requested.
+- Keep the Phaser canvas transparent. The animated CSS background is part of the intended look.
+- Preserve the updated UI language:
+  - command rail
+  - standings panel
+  - dossier panel
+  - holdings strip
+  - tactical survey/minimap
+  - draggable panels
+  - parchment/brass styling
+  - organic territory rendering
+- Avoid reintroducing the old blue floating HUD, opaque canvas background, or old sector polygon look.
 
 ## How To Run
-From the project folder:
+
+From the project root:
 
 ```powershell
 C:\Users\tjbac\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe server.mjs
 ```
 
-Then open:
+Open:
 
 ```text
 http://127.0.0.1:5173
 ```
 
-The server was already running on port `5173` in the last session. If the site cannot be reached, start `server.mjs` again.
+At the end of the previous session, the local server was already responding on port `5173`.
 
-## Important Files
-- `index.html`: Loads CSS, Phaser CDN, and `src/playable-game.js`.
-- `src/playable-game.js`: The actual running game. Gameplay, AI, combat, tiers, invader, camera, minimap, and HUD rendering are all here.
-- `src/style.css`: Main menu, HUD, sector strip, legend, minimap, and responsive styling.
-- `server.mjs`: Tiny local static server.
-- Latest screenshots for current systems:
-  - `smoke-invader-menu.png`
-  - `smoke-invader-game.png`
-  - `smoke-invader-mobile.png`
+## Current Worktree State
 
-## Current Gameplay State
-- Main menu has:
-  - Rival AI count selector: 1-5 AIs.
-  - Human Commander mode.
-  - Spectator Simulation mode.
-- Current normal factions:
-  - Free Star Alliance
-  - Imperial Directorate
-  - Outer Rim Syndicate
-  - Trade Combine
-  - Ashen Order
-  - Verdant League
-- Runtime-only end-game faction:
-  - Void Ascendancy
-- Map starts with:
-  - 52 worlds.
-  - 10 sectors.
-  - 76 hyperspace lanes.
-- At 10:00 simulation time, if the match is still active, `The Rift Crown` spawns as a new edge-map node and adds 4 lanes.
-- World data includes owner, ships, generation, kind, capital flag, sector, and `level`.
-- Player action is intentionally simple:
-  - Click owned world.
-  - Click connected target.
-  - Sends part of the source fleet.
-  - Clicking the same selected owned world upgrades it if it qualifies.
+Expected modified files:
 
-## Planet Levels, Fleet Tiers, And Combat
-- All worlds, including capitals, start at Level 1.
-- Planet upgrades:
-  - Level 2 requires 140 ships and spends 45.
-  - Level 3 requires 250 ships and spends 90.
-  - Normal factions cannot upgrade past Level 3.
-- Fleet tier equals source planet level at launch.
-- Combat power:
-  - Tier I: `1.00x`
-  - Tier II: `1.14x`
-  - Tier III: `1.28x`
-  - Tier IV: `1.48x`, invader-only.
-- Upgraded planets add production:
-  - Level 2: `+1`
-  - Level 3: `+2`
-- Fortresses, stations, and command worlds defend better.
-- Shipyards and gates give outgoing fleets a small attack modifier.
-- Combat uses modest random variance and occasional close-battle decisive strike messages.
-- Fleet labels show tier, for example `80 III`.
-- World labels show ships and level.
+- `index.html`
+- `src/playable-game.js`
+- `src/style.css`
 
-## AI And Capital Rewards
-AI is implemented in `src/playable-game.js`, primarily around:
-- `Simulation.updateAi`
-- `createAiPlan`
-- `chooseAiTarget`
-- `aiTargetScore`
-- `shouldAiAttack`
-- `tryAiUpgrade`
+Expected untracked files:
 
-Current AI behavior:
-- Uses campaign plans focused on rival capitals.
-- Tracks target capitals, target sectors, staging worlds, and war posture.
-- Can coordinate multiple launches toward the same objective.
-- Takes bigger risks during assault/surge pressure.
-- Avoids wasteful reinforcement loops more than earlier versions.
-- Upgrades valuable staging worlds, capitals, and shipyards when it can afford the troop spend.
+- `DankArcade/`
+- `FEEDBACK.md`
+- `tweaks-panel.jsx`
+- `starline-tweaks.jsx`
 
-Capital capture reward:
-- Capturing a rival capital triggers war surge.
-- Captured capital and owned worlds gain ships.
-- Shipyards get extra reward ships.
-- War surge temporarily boosts production and AI aggression.
+`tweaks-panel.jsx` and `starline-tweaks.jsx` were brought to the root because the updated root `index.html` now loads the DankArcade tweak panel scripts.
 
-## Galaxy Age And End-Game Invader
-Galaxy age uses `Simulation.elapsed` and is shown in the HUD as `Age: MM:SS`.
+Several old smoke screenshot PNG files are present in the root from earlier sessions. Treat them as existing project artifacts unless the user asks to clean them up.
 
-Warnings:
-- 8:00: rift forming warning.
-- 9:30: imminent invasion warning.
+## What Was Implemented In The Last Session
 
-At 10:00:
-- `Void Ascendancy` spawns from `The Rift Crown`.
-- `The Rift Crown` is a runtime-only world with Level 4 and Tier IV fleets.
-- Starting ships scale from universe strength:
-  - Minimum 360.
-  - Maximum 900.
-  - Scales using total faction ships, strongest faction, upgraded worlds, and active faction count.
-- Invader wave size scales around 55-65% of source ships.
-- Invader production rises slightly every 2 minutes after spawn.
-- Invader captures worlds as Level 4.
-- Normal factions prioritize Void worlds heavily after spawn.
+### UI Restoration
 
-Defeating the invader:
-- Capturing `The Rift Crown` defeats the Void Ascendancy.
-- Remaining Void-owned non-origin worlds become neutral.
-- Void fleets are cleared.
-- Capturer gets:
-  - `The Rift Crown` downgraded to Level 3.
-  - At least 120 ships on the origin world.
-  - `+25` ships to owned worlds.
-  - Extra `+10` for shipyards.
-  - 60-second war surge.
-- Normal victory rules continue afterward.
+The root app was replaced with the `DankArcade` visual/runtime structure:
 
-## Current Camera And UI
-- Drag pan on the map.
-- Mouse wheel zoom.
-- HUD `-` and `+` zoom buttons.
-- Keyboard and edge panning.
-- Camera clamps to the current map bounds.
-- Map bounds update when the runtime invader node appears.
-- Clickable minimap in the lower-right:
-  - Shows sector territory, worlds, fleets, and camera viewport.
-  - Includes the runtime invader node after it spawns.
-- HUD currently shows:
-  - Pause/play.
-  - Speed.
-  - Zoom controls.
-  - Restart and main menu.
-  - Age/status/message text.
-  - Sector holdings strip.
-  - Legend.
+- `DankArcade/index.html` became root `index.html`.
+- `DankArcade/src/playable-game.js` became root `src/playable-game.js`.
+- `DankArcade/src/style.css` became root `src/style.css`.
+- `DankArcade/tweaks-panel.jsx` and `DankArcade/starline-tweaks.jsx` were copied to root.
 
-## Recommended Next Session Goal
-The user wants to work on **UI, stat trackers, and maps**.
+The browser smoke test confirmed:
 
-Good next direction:
-- Keep the game browser-playable after every change.
-- Avoid a full rewrite or dependency/build migration.
-- Improve information clarity without burying the playfield.
-- Prefer DOM HUD/panels for stats, with the Phaser canvas continuing to render the galaxy.
+- command rail appears
+- standings panel appears
+- dossier panel appears
+- tactical survey appears
+- Chronicle panel exists
+- animated background exists
+- Phaser canvas background is transparent: `rgba(0, 0, 0, 0)`
+- no desktop or mobile console/page errors
 
-Recommended UI improvements:
-- Add a compact stats panel or toggleable overlay for:
-  - Faction world count.
-  - Total ships.
-  - Capitals held.
-  - Sectors held.
-  - Highest planet level.
-  - Active war surge time.
-  - Void invasion status.
-- Add selected-world detail panel:
-  - Owner.
-  - Level/tier.
-  - Ships.
-  - Production.
-  - Upgrade requirement/cost.
-  - Connected worlds.
-  - Incoming friendly/enemy fleet counts.
-- Add event log:
-  - Captures.
-  - Capital falls.
-  - Planet upgrades.
-  - Void warnings/spawn/defeat.
-  - Decisive combat outcomes.
-- Improve HUD layout so long status messages do not crowd controls.
+### Six Gameplay Fixes Reapplied To The Updated Runtime
 
-Recommended stat tracker work:
-- Add `Simulation.stats` or derived helper methods rather than scattering calculations in HUD code.
-- Track per-faction counters:
-  - Worlds captured.
-  - Capitals captured/lost.
-  - Fleets launched.
-  - Fleets lost.
-  - Ships destroyed.
-  - Planets upgraded.
-  - Void damage dealt/received.
-- Decide whether stats are current snapshot only, historical totals only, or both.
-- Keep stats reset on match restart.
+1. Performance and smoothness
+   - Added simulation caches:
+     - `worldById`
+     - `neighborsById`
+     - `laneKeys`
+   - `getWorld`, `getNeighbors`, and `areConnected` now use cached lookups.
+   - Caches rebuild on restart and map changes such as Void spawn.
+   - HUD panel rendering is throttled through `HUD_RENDER_INTERVAL`.
+   - World labels and fleet labels use viewport culling.
 
-Recommended map work:
-- Add map overlays/toggles:
-  - Sector ownership.
-  - Production values.
-  - Planet levels.
-  - Capital threat routes.
-  - Void invasion routes after spawn.
-- Improve minimap readability:
-  - Distinct capital markers.
-  - Distinct Void marker.
-  - Optional camera viewport contrast.
-- Consider a larger map panel or tactical map mode that can be opened from the HUD.
-- If adding map controls, use compact icon/toggle buttons and avoid covering the center playfield.
+2. Map centering
+   - Added `normalizeGalaxyWorlds(...)` after map transform.
+   - Initial camera focus now uses playable galaxy core:
+     - active capitals
+     - Nexus/Core sector when present
+     - fallback to all active worlds
+   - Camera bounds still include all worlds plus padding.
+   - Void spawn expands map bounds without intentionally yanking camera focus.
 
-## Likely Code Areas For UI/Stats/Maps
-- HUD/menu construction:
+3. Crisis balance
+   - Void spawn no longer uses the old fixed 360-900 style cap.
+   - Spawn now scales from current universe strength:
+     - owned ships
+     - fleets in transit
+     - production
+     - upgraded worlds
+     - active faction count
+     - strongest faction power
+     - map size
+   - `invaderScale` feeds post-spawn Void pressure.
+   - Normal factions heavily prioritize Void worlds after spawn.
+
+4. Camera movement
+   - Keyboard state is tracked manually with `keydown`/`keyup`.
+   - WASD and arrow keys pan while not typing/selecting visible HUD controls.
+   - Drag pan starts on empty canvas space.
+   - Edge pan is active near canvas edges.
+   - Wheel zoom is centered through the camera controller.
+   - Zoom buttons and tactical minimap jump use the same camera clamping rules.
+
+5. Recent events
+   - Added `simulation.events`, capped by `EVENT_HISTORY_LIMIT`.
+   - Added `Simulation.addEvent(...)`.
+   - Added brass-style `Chronicle` rail button and dropdown panel.
+   - Chronicle entries are newest-first and include formatted match age.
+   - Events are recorded for:
+     - match start
+     - crisis warnings
+     - Void spawn
+     - Void defeat
+     - capital loss/reclaim
+     - faction elimination
+     - sector control changes
+     - major upgrades
+     - decisive battles
+     - victory/defeat
+
+6. Capital loss and faction survival
+   - Capital capture no longer instantly defeats the human player.
+   - Spectator mode no longer ends merely because only one capital remains.
+   - Faction survival is now based on owned worlds plus fleets.
+   - A faction with no capital can still produce, upgrade, launch fleets, and plan.
+   - AI can prioritize reclaiming its original capital.
+   - Human victory occurs when rival non-Void factions are eliminated and the Void is defeated or dormant.
+
+## Key Code Areas
+
+Main runtime:
+
+- `src/playable-game.js`
+
+Important sections and methods:
+
+- Map generation and normalization:
+  - `buildGalaxy`
+  - `normalizeGalaxyWorlds`
+  - `transformGalaxyWorld`
+- Simulation caches and events:
+  - `Simulation.clear`
+  - `Simulation.restart`
+  - `Simulation.rebuildCaches`
+  - `Simulation.addEvent`
+  - `Simulation.getWorld`
+  - `Simulation.getNeighbors`
+  - `Simulation.areConnected`
+- Void crisis:
+  - `Simulation.updateGalaxyAgeEvents`
+  - `Simulation.spawnInvader`
+  - `Simulation.universeStrengthSnapshot`
+  - `Simulation.invaderPressure`
+  - `Simulation.defeatInvader`
+- Faction survival:
+  - `Simulation.handleCapture`
+  - `Simulation.checkFactionEliminations`
+  - `Simulation.isFactionActive`
+  - `Simulation.activeNormalFactions`
+  - `Simulation.checkVictoryConditions`
+  - `Simulation.createAiPlan`
+- UI:
+  - `Hud.buildMenu`
   - `Hud.buildHud`
+  - `Hud.buildChroniclePanel`
   - `Hud.render`
-  - `Hud.renderSectors`
-  - `Hud.renderLegend`
+  - `Hud.renderPanelData`
+  - `Hud.renderChronicle`
+  - `Hud.renderStandings`
+  - `Hud.renderDossier`
+  - `Hud.renderHoldings`
   - `Hud.renderMinimap`
-- Canvas rendering:
+- Camera/rendering:
+  - `ConquestScene.resetCamera`
+  - `ConquestScene.computeMapFocus`
+  - `ConquestScene.computeMapBounds`
+  - `ConquestScene.adjustZoom`
+  - `ConquestScene.updateCameraControls`
+  - `ConquestScene.jumpToMinimap`
+  - `ConquestScene.handleNativePointerDown`
+  - `ConquestScene.handleNativePointerMove`
+  - `ConquestScene.isProjectedInView`
   - `ConquestScene.drawTerritories`
-  - `ConquestScene.drawLanes`
-  - `ConquestScene.drawWorld`
-  - `ConquestScene.drawFleet`
-- Simulation data helpers:
-  - Add helper methods near existing `ownedSectorsFor`, `incomingShips`, `formattedAge`, etc.
-- Styling:
-  - `src/style.css`
+  - `ConquestScene.drawWorldsAndFleets`
 
-## Testing Workflow
-Use Playwright through the bundled Node runtime. Chromium is already installed.
+Main styling:
 
-Basic smoke test:
+- `src/style.css`
+
+Important UI classes:
+
+- `.command-rail`
+- `.standings`
+- `.dossier`
+- `.holdings`
+- `.tactical-map`
+- `.chronicle-panel`
+- `.chronicle-event`
+- `.zoom-stack`
+- `.main-menu`
+
+## Verification Already Completed
+
+Syntax:
+
+```powershell
+C:\Users\tjbac\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --check src\playable-game.js
+```
+
+Result: passed.
+
+Browser smoke at `http://127.0.0.1:5173`:
+
+- desktop viewport passed
+- mobile viewport passed
+- no console/page errors
+- brass UI confirmed live
+- transparent canvas confirmed
+- Human Commander and Spectator Simulation start with 1, 3, and 5 AI factions
+- WASD and arrow key panning confirmed
+- drag pan confirmed after waiting for the menu to hide
+- edge pan confirmed
+- wheel handler confirmed through direct canvas wheel dispatch
+- zoom buttons confirmed
+- fit galaxy confirmed
+- minimap jump confirmed
+- capital loss does not end human game
+- Void spawn scales and logs to events
+- Chronicle panel opens and renders entries
+- classic, ring, twin, core, and frontier focus points were checked
+
+Observed camera note:
+
+- If automated drag tests click on HUD-covered regions, the HUD correctly receives the pointer instead of the canvas. Wait for `.main-menu` to lose `.visible`, then choose a point where `document.elementFromPoint(x, y).tagName === "CANVAS"` for reliable drag/wheel tests.
+
+## Useful Playwright Smoke Snippets
+
+Set `NODE_PATH` first:
 
 ```powershell
 $env:NODE_PATH='C:\Users\tjbac\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules'
-C:\Users\tjbac\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe -e "const { chromium } = require('playwright'); (async()=>{ const browser=await chromium.launch({headless:true}); const page=await browser.newPage({viewport:{width:1360,height:780}}); const errors=[]; page.on('pageerror', err=>errors.push(err.message)); page.on('console', msg=>{ if(msg.type()==='error') errors.push(msg.text()); }); await page.goto('http://127.0.0.1:5173', {waitUntil:'networkidle', timeout:30000}); await page.screenshot({path:'smoke-latest.png', fullPage:false}); console.log(JSON.stringify({title:await page.title(), canvasCount:await page.locator('canvas').count(), menuVisible:await page.locator('.main-menu.visible').count(), errors}, null, 2)); await browser.close(); })();"
 ```
 
-For UI/stat/map work, test at minimum:
-- Start Human Commander with 1, 3, and 5 AIs.
-- Start Spectator Simulation with 1, 3, and 5 AIs.
-- Select an Alliance world.
-- Select/upgrade a qualifying world by forcing ships in Playwright if needed.
-- Launch a human fleet.
-- Run spectator at `5x` for several seconds and confirm stats update.
-- Force time near 10:00 and confirm Void UI/map state updates.
-- Capture desktop and mobile screenshots.
-- Check console/page errors.
+Basic boot check:
 
-Useful forced invader check from prior session:
-- Set `window.__conquestSimulation.elapsed = 599`
-- Call `window.__conquestSimulation.update(1.2)`
-- Confirm `rift-crown` exists, lanes increase, and HUD/minimap update.
+```powershell
+C:\Users\tjbac\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe -e "const { chromium } = require('playwright'); (async()=>{ const browser=await chromium.launch({headless:true}); const page=await browser.newPage({viewport:{width:1440,height:900}}); const errors=[]; page.on('pageerror', e=>errors.push(e.message)); page.on('console', m=>{ if(m.type()==='error') errors.push(m.text()); }); await page.goto('http://127.0.0.1:5173', {waitUntil:'networkidle'}); console.log(JSON.stringify({title:await page.title(), start:await page.locator('[data-action=\"start\"]').count(), commandRail:await page.locator('.command-rail').count(), errors}, null, 2)); await browser.close(); })();"
+```
 
-## Recent Verification
-Latest successful Playwright checks verified:
-- Syntax check passes.
-- Human and spectator starts for 1, 3, and 5 AIs.
-- All worlds start Level 1.
-- Level upgrade thresholds/costs work.
-- Tier III fleet launch works.
-- Capital capture war surge still works.
-- Invader warnings, spawn, scaling, Tier IV launch, and defeat reward work.
-- Weak universe spawned Void at 360 ships.
-- Strong universe capped Void at 900 ships.
-- No page errors.
+Force Void spawn from browser console or Playwright:
 
-Latest screenshots:
-- `smoke-invader-menu.png`
-- `smoke-invader-game.png`
-- `smoke-invader-mobile.png`
+```js
+window.__conquestSimulation.elapsed = 599;
+window.__conquestSimulation.update(1.5);
+```
 
-## User Preference
-The user is non-technical and wants the game to work in the browser after each change. Do not stop at plans when they ask for implementation. Keep the local server running, test as you go, and provide the playable URL after changes.
+Force human capital capture without ending the game:
+
+```js
+const sim = window.__conquestSimulation;
+const capital = sim.getWorld("alliance-capital");
+const oldOwner = capital.owner;
+capital.owner = "directorate";
+sim.handleCapture(capital, oldOwner);
+sim.checkFactionEliminations();
+sim.checkVictoryConditions();
+console.log(sim.status, sim.message);
+```
+
+Expected result:
+
+```text
+playing
+Liberty Prime has fallen...
+```
+
+## Known Watch-Outs
+
+- `src/playable-game.js` is still a large single-file runtime. Keep edits scoped and test frequently.
+- Root `index.html` loads React, ReactDOM, Babel, and the tweak panel scripts from CDN. The last browser smoke produced no SRI or load errors.
+- Do not assume `DankArcade/` should be deleted; it remains useful as the design reference.
+- `FEEDBACK.md` is user-provided feedback. Preserve it.
+- If changing pointer or HUD layering, retest drag pan carefully because the updated UI intentionally overlays several panels on top of the transparent canvas.
+- If changing Void balance, test weak, average, and strong universes. Current smoke saw a large-map/strong-state spawn around 1335 ships, which is intentionally above the old fixed cap.
+- If changing event rendering, preserve the brass Chronicle style rather than adding a blue stats dropdown.
+- If changing victory/loss logic, preserve the chosen rule: factions only truly lose when they have no worlds and no fleets.
+
+## Good Next Tasks
+
+Short-term polish:
+
+- Tune Chronicle density and filtering once more event types accumulate.
+- Add a small visual indicator when a faction has lost its capital but remains active.
+- Improve drag-pan automation/manual feel around HUD edges if the user reports friction.
+- Add clearer Void pressure cues on the tactical survey.
+- Add a "capital reclaim" callout in dossier/standings.
+
+Medium-term gameplay:
+
+- Tune Void scaling by running 1, 3, and 5 AI simulations at 1x, 3x, and 5x.
+- Add deterministic debug controls for forced crisis/capital loss/event generation.
+- Add saveable match settings if the user keeps iterating on layouts.
+- Expand AI reclaim logic for multi-step routes when the lost capital is not adjacent to a strong owned world.
+
+Medium-term UI:
+
+- Let Chronicle collapse into a compact rail popover on smaller mobile heights.
+- Add event filters: Crisis, Capitals, Battles, Economy.
+- Add faction activity state to standings: active, capital lost, eliminated, Void pressure.
+- Add tactical survey overlays for production, planet level, and capital threat.
+
+## Development Preference For Next Session
+
+Before editing:
+
+1. Check `git status --short`.
+2. Treat root `src/playable-game.js` and `src/style.css` as live.
+3. Treat `DankArcade/` as design reference.
+4. Start or verify `server.mjs`.
+5. Keep Playwright smoke tests focused but real: boot, start, interact, screenshot, console errors.
+
+After editing:
+
+1. Run `node --check src\playable-game.js`.
+2. Smoke desktop and mobile.
+3. Verify the UI still looks like DankArcade, not the old HUD.
+4. Verify any touched gameplay rule with direct simulation checks.
